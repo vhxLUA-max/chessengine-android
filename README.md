@@ -4,7 +4,7 @@ A native Android companion for chess analysis with a local Stockfish engine runn
 
 Cheezie Android is designed to bring the core analysis workflow of the Cheezie project to chess apps outside the browser. The Android side handles screen capture, board positioning, visual overlays, and optional gesture input. Termux provides the local chess-engine backend.
 
-> **Status:** Work in progress. The engine/API foundation is implemented, while live board tracking, app profiles, and several higher-level Cheezie features are still being developed.
+> **Status:** Work in progress. Phase 2 live-position tracking and the core Phase 3 analysis overlay are implemented. Automatic app profiles, full coaching parity, promotion-aware automation, and other advanced controls remain in development.
 
 ## Overview
 
@@ -63,23 +63,32 @@ The intended flow is:
 - Optional automatic move gestures
 - Optional bearer-token authentication for non-local connections
 - CORS support for compatible clients
+- Conservative live move detection from stable board-cell signatures
+- Legal-move matching for normal moves, castling, en passant, and promotion positions
+- Automatic new-game reset when the captured board returns to the configured initial position
+- Board-orientation change detection and snapshot rebasing
+- Persistent MultiPV arrows between capture frames
+- White-perspective engine evaluation for the overlay
+- Evaluation bar
+- Move classification based on engine centipawn loss
+- Estimated move accuracy
+- Contextual coach messages
+- Optional Android text-to-speech coaching
 
 ### Planned
 
-The project is intended to grow toward feature parity with the Cheezie analysis workflow, including:
+The remaining work toward broader Cheezie parity includes:
 
-- Reliable live board-state tracking
-- Chess-app profiles and automatic profile detection
-- More robust orientation detection
-- Move classification
-- Accuracy and estimated Elo
-- Evaluation bar
-- Coach and hint controls
-- Voice/TTS coaching
+- Chess-app profiles and per-app board geometry
+- Fully automatic board geometry detection
+- More robust piece recognition across board themes
+- Brilliant-specific tactical heuristics
+- Estimated Elo tracking across a game
 - Configurable arrow colors and display modes
-- Auto-start/game-state detection
+- Hint/preview controls
+- Auto-start/game-state detection beyond board reset
 - Delay and timing controls
-- Safer automatic move handling, including promotion cases
+- Promotion-aware automatic move handling
 - Import/export of analysis configuration
 
 Features are added incrementally as the Android integration becomes stable.
@@ -179,7 +188,7 @@ You can also use the repository launcher:
 ./run.sh
 ```
 
-The launcher is intended to start the integrated service in `server.py`. The live board-detection/session layer is still under active development, so the direct `engine_server.py` path is the reference backend for engine-only testing.
+The launcher starts the integrated service in `server.py`, which now includes live board tracking and move-quality analysis. Use `engine_server.py` when you only want to test the raw FEN-to-Stockfish API.
 
 ## Health check
 
@@ -322,7 +331,7 @@ The current Android service uses a manually configured square board region:
 - **Board size:** total board width/height
 - **Orientation:** `white` or `black`
 
-The live auto-detection and per-app profile system are planned improvements.
+The current board geometry is still manual. Per-app profiles and automatic geometry detection remain planned.
 
 ## Building the Android app
 
@@ -395,11 +404,11 @@ The current repository snapshot is not feature-complete.
 
 In particular:
 
-- Live board-state tracking is still being developed.
+- Board geometry is still manually configured.
 - App-specific profiles are not yet implemented.
-- The current Android UI exposes only the core connection and board-position settings.
-- Advanced Cheezie features such as accuracy, coaching, move classification, and configuration profiles are not yet implemented in the Android app.
-- Promotion-aware automatic move handling still needs a complete implementation.
+- Piece recognition remains signature-based rather than sprite-aware, so some board themes or animations may require tuning.
+- Accuracy is an engine-derived estimate, not a claim of exact compatibility with any chess site's proprietary accuracy metric.
+- Promotion-aware automatic move handling is intentionally disabled until promotion-piece selection is implemented.
 - Runtime behavior depends on the Android version, chess app, screen layout, and accessibility restrictions.
 
 The README documents the intended architecture and the current repository contents; it does not imply that every planned feature is already production-ready.
@@ -415,19 +424,23 @@ The README documents the intended architecture and the current repository conten
 - [x] Android-to-Termux HTTP client foundation
 
 ### Phase 2 — Live board integration
-- [ ] Reliable piece/position tracking
-- [ ] Move synchronization
-- [ ] Game reset detection
-- [ ] Orientation detection
-- [ ] App profiles
+- [x] Reliable conservative position tracking
+- [x] Legal move synchronization
+- [x] Game reset detection
+- [x] Orientation-change detection
+- [ ] Per-app profiles
+- [ ] Automatic board geometry detection
 
 ### Phase 3 — Cheezie-style analysis
-- [ ] Move classification
-- [ ] Accuracy calculation
-- [ ] Evaluation bar
-- [ ] Coach and hint system
-- [ ] Configurable arrows
-- [ ] Voice/TTS output
+- [x] Move classification
+- [x] Estimated accuracy calculation
+- [x] Evaluation bar
+- [x] Coach messages
+- [x] MultiPV arrows
+- [x] Voice/TTS output
+- [ ] Brilliant-specific tactical heuristics
+- [ ] Estimated Elo tracking
+- [ ] Full hint/preview system
 
 ### Phase 4 — Automation
 - [ ] Auto-start
