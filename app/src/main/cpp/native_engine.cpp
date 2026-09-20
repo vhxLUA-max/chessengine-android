@@ -1,4 +1,6 @@
 #include "native_engine.h"
+
+#include <algorithm>
 #include <condition_variable>
 #include <filesystem>
 #include <mutex>
