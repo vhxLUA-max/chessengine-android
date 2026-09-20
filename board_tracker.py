@@ -226,7 +226,7 @@ class BoardTracker:
             mirrored.extend(cells[index * 4:(index + 1) * 4])
         return mirrored
 
-    def process(self, session_id, cells, initial_fen=START_FEN, orientation="white"):
+    def process(self, session_id, cells, initial_fen=START_FEN, orientation=None):
         values = self._validate_cells(cells)
         session_id = str(session_id)
 
@@ -234,10 +234,13 @@ class BoardTracker:
             state = self.sessions.get(session_id)
 
             if state is None:
-                self.reset(session_id, initial_fen or START_FEN, orientation)
+                self.reset(session_id, initial_fen or START_FEN, orientation or "white")
                 state = self.sessions[session_id]
 
-            state["orientation"] = orientation or state["orientation"]
+            if orientation is not None:
+                normalized_orientation = str(orientation).lower()
+                if normalized_orientation in ("white", "black", "auto"):
+                    state["orientation"] = normalized_orientation
 
             if state["initial_cells"] is None:
                 state["initial_cells"] = list(values)
