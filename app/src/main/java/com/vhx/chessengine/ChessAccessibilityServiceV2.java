@@ -28,6 +28,9 @@ public final class ChessAccessibilityServiceV2 extends AccessibilityService {
     private OverlayViewV2 overlay;
 
     private String lastAutoMove = null;
+    private TextToSpeech textToSpeech;
+    private String lastCoachKey = null;
+    private String lastAutoMoveKey = null;
     private boolean captureBusy = false;
     private volatile boolean requestBusy = false;
 
@@ -558,6 +561,10 @@ public final class ChessAccessibilityServiceV2 extends AccessibilityService {
             this.x = x;
             this.y = y;
         }
+    }
+
+    private int clamp(int value, int min, int max) {
+        return Math.max(min, Math.min(max, value));
     }
 
     private String escape(String value) {
