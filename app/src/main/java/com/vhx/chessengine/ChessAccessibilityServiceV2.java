@@ -421,16 +421,22 @@ public final class ChessAccessibilityServiceV2 extends AccessibilityService {
                 speakCoach(coach);
             }
 
+            final Integer overlayEvalCp = evalCp;
+            final Integer overlayEvalMate = evalMate;
+            final double overlayAccuracy = accuracy;
+            final String overlayClassification = classification;
+            final String overlayCoach = coach;
+
             handler.post(() -> {
                 if (overlay != null) {
                     overlay.setBoard(x, y, size, orientation);
                     overlay.setArrows(next);
                     overlay.setAnalysis(
-                            evalCp,
-                            evalMate,
-                            accuracy,
-                            classification,
-                            coach,
+                            overlayEvalCp,
+                            overlayEvalMate,
+                            overlayAccuracy,
+                            overlayClassification,
+                            overlayCoach,
                             showEval,
                             showClassification,
                             showCoach
