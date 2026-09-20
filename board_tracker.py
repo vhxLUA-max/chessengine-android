@@ -254,6 +254,8 @@ class BoardTracker:
                     else "white"
                 )
                 state["last_frame"] = values
+                state["committed_cells"] = values
+                state["initial_cells"] = list(values)
                 state["stable_count"] = 0
 
                 return self._response(
