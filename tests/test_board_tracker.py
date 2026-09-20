@@ -56,10 +56,10 @@ class BoardTrackerTests(unittest.TestCase):
         tracker.reset("black-game", fen, "black")
         base = frame_with_changes()
 
-        # Black orientation: e7 -> screen index 52, e5 -> 36.
+        # Black orientation: e7 -> screen index 51, e5 -> 35.
         moved = frame_with_changes({
-            52: [140.0, 140.0, 140.0, 20.0],
-            36: [140.0, 140.0, 140.0, 20.0],
+            51: [140.0, 140.0, 140.0, 20.0],
+            35: [140.0, 140.0, 140.0, 20.0],
         })
 
         result = run_until_commit(
