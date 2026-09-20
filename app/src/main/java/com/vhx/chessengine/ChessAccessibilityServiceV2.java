@@ -16,6 +16,8 @@ import android.view.accessibility.AccessibilityEvent;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import android.speech.tts.TextToSpeech;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -56,6 +58,15 @@ public final class ChessAccessibilityServiceV2 extends AccessibilityService {
 
         params.gravity = Gravity.TOP | Gravity.START;
         windowManager.addView(overlay, params);
+
+        textToSpeech = new TextToSpeech(
+                this,
+                status -> {
+                    if (status == TextToSpeech.SUCCESS && textToSpeech != null) {
+                        textToSpeech.setLanguage(java.util.Locale.US);
+                    }
+                }
+        );
 
         handler.post(captureLoop);
     }
@@ -387,6 +398,25 @@ public final class ChessAccessibilityServiceV2 extends AccessibilityService {
             String side = root.optString("side", "");
             String best = root.optString("bestmove_uci", "");
             String fen = root.optString("fen", "");
+            String detectedMove = root.optString("move_uci", "");
+            boolean voiceCoach = MainActivity.pref(
+                    this,
+                    MainActivity.VOICE_COACH,
+                    false
+            );
+
+            String coachKey = root.optString("previous_fen", "")
+                    + ":" + detectedMove + ":" + classification;
+
+            if (
+                    changed
+                            && voiceCoach
+                            && !coach.isEmpty()
+                            && !coachKey.equals(lastCoachKey)
+            ) {
+                lastCoachKey = coachKey;
+                speakCoach(coach);
+            }
 
             handler.post(() -> {
                 if (overlay != null) {
@@ -444,6 +474,19 @@ public final class ChessAccessibilityServiceV2 extends AccessibilityService {
             }
         } catch (Exception ignored) {
         }
+    }
+
+    private void speakCoach(String message) {
+        if (textToSpeech == null || message == null || message.isEmpty()) {
+            return;
+        }
+
+        textToSpeech.speak(
+                message,
+                TextToSpeech.QUEUE_FLUSH,
+                null,
+                "cheeezie-coach"
+        );
     }
 
     private void dispatchChessMove(
@@ -545,6 +588,13 @@ public final class ChessAccessibilityServiceV2 extends AccessibilityService {
     @Override
     public void onDestroy() {
         onInterrupt();
+
+        if (textToSpeech != null) {
+            textToSpeech.stop();
+            textToSpeech.shutdown();
+            textToSpeech = null;
+        }
+
         super.onDestroy();
     }
 }
