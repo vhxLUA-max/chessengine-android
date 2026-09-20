@@ -24,6 +24,8 @@ public class MainActivity extends Activity {
     public static final String BOARD_SIZE = "board_size";
     public static final String ORIENTATION = "orientation";
     public static final String AUTO_MOVE = "auto_move";
+    public static final String USER_SIDE = "user_side";
+    public static final String INITIAL_FEN = "initial_fen";
 
     private EditText apiUrl;
     private EditText token;
