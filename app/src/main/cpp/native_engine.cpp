@@ -21,14 +21,7 @@ struct AnalysisState {
     int depth = 0;
 };
 std::string joinPv(const Stockfish::Engine::InfoFull& info) {
-    std::ostringstream out;
-    bool first = true;
-    for (const auto& move : info.pv) {
-        if (!first) out << ' ';
-        first = false;
-        out << Stockfish::UCIEngine::move(move);
-    }
-    return out.str();
+    return std::string(info.pv);
 }
 }
 namespace CheezieNative {
@@ -67,9 +60,9 @@ bool Engine::analyze(int depth, int movetimeMs, int threads, int hashMb, int mul
     impl_->engine->stop();
     impl_->engine->wait_for_search_finished();
     auto& options = impl_->engine->get_options();
-    options["Threads"] = std::max(1, threads);
-    options["Hash"] = std::max(1, hashMb);
-    options["MultiPV"] = std::max(1, multiPv);
+    options["Threads"] = std::to_string(std::max(1, threads));
+    options["Hash"] = std::to_string(std::max(1, hashMb));
+    options["MultiPV"] = std::to_string(std::max(1, multiPv));
     {
         std::lock_guard<std::mutex> stateLock(impl_->state.mutex);
         impl_->state.finished = false;
@@ -78,7 +71,7 @@ bool Engine::analyze(int depth, int movetimeMs, int threads, int hashMb, int mul
         impl_->state.depth = 0;
     }
     Stockfish::Search::LimitsType limits;
-    limits.depth = depth > 0 ? depth : Stockfish::DEPTH_MAX;
+    limits.depth = depth > 0 ? depth : 20;
     if (movetimeMs > 0) limits.movetime = movetimeMs;
     impl_->engine->go(limits);
     std::unique_lock<std::mutex> stateLock(impl_->state.mutex);
