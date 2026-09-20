@@ -520,7 +520,7 @@ public final class ChessAccessibilityServiceV2 extends AccessibilityService {
     private String escape(String value) {
         return value
                 .replace("\\", "\\\\")
-                .replace(""", "\"");
+                .replace("\"", "\\\"");
     }
 
     @Override
