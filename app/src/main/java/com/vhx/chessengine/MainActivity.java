@@ -32,6 +32,7 @@ public class MainActivity extends Activity {
     public static final String SHOW_EVAL = "show_eval";
     public static final String MOVE_CLASSIFICATION = "move_classification";
     public static final String COACH = "coach";
+    public static final String VOICE_COACH = "voice_coach";
 
     private EditText apiUrl;
     private EditText token;
@@ -48,6 +49,7 @@ public class MainActivity extends Activity {
     private Switch showEval;
     private Switch moveClassification;
     private Switch coach;
+    private Switch voiceCoach;
 
     @Override
     protected void onCreate(Bundle state) {
@@ -145,11 +147,16 @@ public class MainActivity extends Activity {
                 "Coach message",
                 p.getBoolean(COACH, true)
         );
+        voiceCoach = toggle(
+                "Voice coach",
+                p.getBoolean(VOICE_COACH, false)
+        );
 
         root.addView(autoMove);
         root.addView(showEval);
         root.addView(moveClassification);
         root.addView(coach);
+        root.addView(voiceCoach);
 
         Button save = button("SAVE SETTINGS");
         save.setOnClickListener(v -> saveSettings());
@@ -260,6 +267,7 @@ public class MainActivity extends Activity {
         e.putBoolean(SHOW_EVAL, showEval.isChecked());
         e.putBoolean(MOVE_CLASSIFICATION, moveClassification.isChecked());
         e.putBoolean(COACH, coach.isChecked());
+        e.putBoolean(VOICE_COACH, voiceCoach.isChecked());
 
         e.apply();
     }
