@@ -183,8 +183,10 @@ class BoardTracker:
         board = chess.Board(fen)
         return {
             "board": board,
+            "initial_fen": board.fen(),
             "orientation": orientation or "white",
             "last_frame": None,
+            "initial_cells": None,
             "stable_count": 0,
             "committed_cells": None,
             "last_move": None,
@@ -205,6 +207,13 @@ class BoardTracker:
     def set_fen(self, session_id, fen, orientation="white"):
         return self.reset(session_id, fen, orientation)
 
+    @staticmethod
+    def _mirrored_cells(cells):
+        mirrored = []
+        for index in range(63, -1, -1):
+            mirrored.extend(cells[index * 4:(index + 1) * 4])
+        return mirrored
+
     def process(self, session_id, cells, initial_fen=START_FEN, orientation="white"):
         values = self._validate_cells(cells)
         session_id = str(session_id)
@@ -218,11 +227,41 @@ class BoardTracker:
 
             state["orientation"] = orientation or state["orientation"]
 
+            if state["initial_cells"] is None:
+                state["initial_cells"] = list(values)
+
             if state["last_frame"] is None:
                 state["last_frame"] = values
                 return self._response(state)
 
-            average, maximum = self._frame_distance(
+            direct_average, direct_maximum = self._frame_distance(
+                state["last_frame"],
+                values,
+            )
+            mirrored_average, mirrored_maximum = self._frame_distance(
+                state["last_frame"],
+                self._mirrored_cells(values),
+            )
+
+            if (
+                direct_average > 8.0
+                and mirrored_average <= 4.0
+                and mirrored_maximum <= 25.0
+            ):
+                state["orientation"] = (
+                    "black"
+                    if state["orientation"].lower() == "white"
+                    else "white"
+                )
+                state["last_frame"] = values
+                state["stable_count"] = 0
+
+                return self._response(
+                    state,
+                    orientation_detected=True,
+                )
+
+            average, maximum = direct_average, direct_maximum
                 state["last_frame"],
                 values,
             )
@@ -242,6 +281,27 @@ class BoardTracker:
             if state["committed_cells"] is None:
                 state["committed_cells"] = values
                 return self._response(state)
+
+            initial_average, initial_maximum = self._frame_distance(
+                state["initial_cells"],
+                values,
+            )
+
+            if (
+                state["board"].fen() != state["initial_fen"]
+                and initial_average <= 4.0
+                and initial_maximum <= 25.0
+            ):
+                state["board"] = chess.Board(state["initial_fen"])
+                state["committed_cells"] = values
+                state["stable_count"] = 0
+                state["last_move"] = None
+                state["move_number"] = 0
+
+                return self._response(
+                    state,
+                    reset_detected=True,
+                )
 
             changed_indices = self._changed_indices(
                 state["committed_cells"],
@@ -298,6 +358,8 @@ class BoardTracker:
         previous_fen=None,
         changed_squares=None,
         candidates=None,
+        reset_detected=False,
+        orientation_detected=False,
     ):
         board = state["board"]
 
@@ -319,6 +381,8 @@ class BoardTracker:
                 chess.square_name(square)
                 for square in (changed_squares or set())
             ),
+            "reset_detected": bool(reset_detected),
+            "orientation_detected": bool(orientation_detected),
         }
 
         if previous_fen is not None:
