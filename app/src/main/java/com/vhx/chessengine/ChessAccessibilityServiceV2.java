@@ -1,0 +1,457 @@
+package com.vhx.chessengine;
+
+import android.accessibilityservice.AccessibilityService;
+import android.accessibilityservice.GestureDescription;
+import android.graphics.Bitmap;
+import android.graphics.Path;
+import android.graphics.PixelFormat;
+import android.hardware.HardwareBuffer;
+import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
+import android.view.Gravity;
+import android.view.WindowManager;
+import android.view.accessibility.AccessibilityEvent;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.util.ArrayList;
+import java.util.List;
+
+public final class ChessAccessibilityServiceV2 extends AccessibilityService {
+    private final Handler handler = new Handler(Looper.getMainLooper());
+
+    private WindowManager windowManager;
+    private OverlayViewV2 overlay;
+
+    private String lastAutoMove = null;
+    private boolean captureBusy = false;
+
+    private final Runnable captureLoop = new Runnable() {
+        @Override
+        public void run() {
+            capture();
+            handler.postDelayed(this, 1000);
+        }
+    };
+
+    @Override
+    protected void onServiceConnected() {
+        super.onServiceConnected();
+
+        windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
+        overlay = new OverlayViewV2(this);
+
+        WindowManager.LayoutParams params = new WindowManager.LayoutParams(
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                        | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                        | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                PixelFormat.TRANSLUCENT
+        );
+
+        params.gravity = Gravity.TOP | Gravity.START;
+        windowManager.addView(overlay, params);
+
+        handler.post(captureLoop);
+    }
+
+    private void capture() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R || captureBusy) {
+            return;
+        }
+
+        captureBusy = true;
+
+        try {
+            takeScreenshot(
+                    getDisplayIdCompat(),
+                    getMainExecutor(),
+                    new TakeScreenshotCallback() {
+                        @Override
+                        public void onSuccess(ScreenshotResult result) {
+                            HardwareBuffer hardwareBuffer = result.getHardwareBuffer();
+                            Bitmap wrapped = null;
+
+                            try {
+                                wrapped = Bitmap.wrapHardwareBuffer(
+                                        hardwareBuffer,
+                                        result.getColorSpace()
+                                );
+
+                                if (wrapped == null) {
+                                    return;
+                                }
+
+                                Bitmap copy = wrapped.copy(
+                                        Bitmap.Config.ARGB_8888,
+                                        false
+                                );
+
+                                if (copy == null) {
+                                    return;
+                                }
+
+                                sendFrame(copy);
+                                copy.recycle();
+                            } finally {
+                                if (wrapped != null) {
+                                    wrapped.recycle();
+                                }
+
+                                hardwareBuffer.close();
+                                captureBusy = false;
+                            }
+                        }
+
+                        @Override
+                        public void onFailure(int errorCode) {
+                            captureBusy = false;
+                        }
+                    }
+            );
+        } catch (Exception ignored) {
+            captureBusy = false;
+        }
+    }
+
+    private int getDisplayIdCompat() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            android.view.Display display = getDisplay();
+            if (display != null) {
+                return display.getDisplayId();
+            }
+        }
+
+        return android.view.Display.DEFAULT_DISPLAY;
+    }
+
+    private void sendFrame(Bitmap screen) {
+        String baseUrl = MainActivity.pref(
+                this,
+                MainActivity.API_URL,
+                "http://127.0.0.1:8765"
+        );
+
+        String token = MainActivity.pref(
+                this,
+                MainActivity.TOKEN,
+                ""
+        );
+
+        int x = MainActivity.pref(this, MainActivity.BOARD_X, 0);
+        int y = MainActivity.pref(this, MainActivity.BOARD_Y, 0);
+        int size = MainActivity.pref(this, MainActivity.BOARD_SIZE, 0);
+
+        String orientation = MainActivity.pref(
+                this,
+                MainActivity.ORIENTATION,
+                "white"
+        );
+
+        if (size <= 0) {
+            return;
+        }
+
+        int safeX = Math.max(0, Math.min(x, screen.getWidth() - 1));
+        int safeY = Math.max(0, Math.min(y, screen.getHeight() - 1));
+
+        int safeSize = Math.min(
+                size,
+                Math.min(
+                        screen.getWidth() - safeX,
+                        screen.getHeight() - safeY
+                )
+        );
+
+        if (safeSize < 80) {
+            return;
+        }
+
+        String cells = sampleCells(screen, safeX, safeY, safeSize);
+
+        String initialFen = MainActivity.pref(
+                this,
+                MainActivity.INITIAL_FEN,
+                BoardDefaults.START_FEN
+        );
+
+        String json =
+                "{"
+                        + "\"session_id\":\"android-main\","
+                        + "\"cells\":" + cells + ","
+                        + "\"initial_fen\":\"" + escape(initialFen) + "\","
+                        + "\"orientation\":\"" + escape(orientation) + "\","
+                        + "\"multipv\":5,"
+                        + "\"depth\":12"
+                        + "}";
+
+        new Thread(() -> {
+            try {
+                String response = TermuxClient.postJson(
+                        baseUrl,
+                        "/detect",
+                        token,
+                        json
+                );
+
+                applyResponse(
+                        response,
+                        safeX,
+                        safeY,
+                        safeSize,
+                        orientation
+                );
+            } catch (Exception ignored) {
+            }
+        }).start();
+    }
+
+    private String sampleCells(Bitmap bitmap, int x, int y, int size) {
+        StringBuilder json = new StringBuilder("[");
+        float cell = size / 8f;
+
+        for (int row = 0; row < 8; row++) {
+            for (int col = 0; col < 8; col++) {
+                float left = x + col * cell + cell * .16f;
+                float top = y + row * cell + cell * .16f;
+                float right = x + (col + 1) * cell - cell * .16f;
+                float bottom = y + (row + 1) * cell - cell * .16f;
+
+                long sumR = 0;
+                long sumG = 0;
+                long sumB = 0;
+                long sumGray = 0;
+                long sumGray2 = 0;
+                int count = 0;
+
+                int sx = Math.max(1, (int) (cell / 9f));
+
+                for (int py = (int) top; py < (int) bottom; py += sx) {
+                    for (int px = (int) left; px < (int) right; px += sx) {
+                        int pixel = bitmap.getPixel(px, py);
+
+                        int r = (pixel >> 16) & 255;
+                        int g = (pixel >> 8) & 255;
+                        int b = pixel & 255;
+                        int gray = (r + g + b) / 3;
+
+                        sumR += r;
+                        sumG += g;
+                        sumB += b;
+                        sumGray += gray;
+                        sumGray2 += (long) gray * gray;
+                        count++;
+                    }
+                }
+
+                double meanR = sumR / (double) Math.max(1, count);
+                double meanG = sumG / (double) Math.max(1, count);
+                double meanB = sumB / (double) Math.max(1, count);
+                double meanGray = sumGray / (double) Math.max(1, count);
+                double variance =
+                        sumGray2 / (double) Math.max(1, count)
+                                - meanGray * meanGray;
+
+                if (json.length() > 1) {
+                    json.append(',');
+                }
+
+                json.append(round(meanR)).append(',')
+                        .append(round(meanG)).append(',')
+                        .append(round(meanB)).append(',')
+                        .append(round(Math.max(0, variance)));
+            }
+        }
+
+        json.append(']');
+        return json.toString();
+    }
+
+    private String round(double value) {
+        return String.format(java.util.Locale.US, "%.2f", value);
+    }
+
+    private void applyResponse(
+            String response,
+            int x,
+            int y,
+            int size,
+            String orientation
+    ) {
+        try {
+            JSONObject root = new JSONObject(response);
+
+            JSONArray lines = root.optJSONArray("lines");
+            List<OverlayViewV2.Arrow> next = new ArrayList<>();
+
+            int[] colors = {
+                    0xFF82C75F,
+                    0xFF5EA23F,
+                    0xFFE1C34A,
+                    0xFFE58A3A,
+                    0xFFE05A5A
+            };
+
+            if (lines != null) {
+                for (int i = 0; i < Math.min(5, lines.length()); i++) {
+                    JSONObject line = lines.optJSONObject(i);
+                    if (line == null) continue;
+
+                    String move = line.optString("bestmove_uci", "");
+                    if (move.length() < 4) continue;
+
+                    next.add(
+                            new OverlayViewV2.Arrow(
+                                    move.substring(0, 2),
+                                    move.substring(2, 4),
+                                    colors[Math.min(i, colors.length - 1)],
+                                    Math.max(5, size / 75f)
+                            )
+                    );
+                }
+            }
+
+            boolean changed = root.optBoolean("changed", false);
+            String side = root.optString("side", "");
+            String best = root.optString("bestmove_uci", "");
+
+            handler.post(() -> {
+                if (overlay != null) {
+                    overlay.setBoard(x, y, size, orientation);
+                    overlay.setArrows(next);
+                }
+            });
+
+            String userSide = MainActivity.pref(
+                    this,
+                    MainActivity.USER_SIDE,
+                    "white"
+            );
+
+            boolean autoMove = MainActivity.pref(
+                    this,
+                    MainActivity.AUTO_MOVE,
+                    false
+            );
+
+            if (
+                    autoMove
+                            && changed
+                            && side.equalsIgnoreCase(userSide)
+                            && best.length() >= 4
+                            && !best.equals(lastAutoMove)
+            ) {
+                lastAutoMove = best;
+                dispatchChessMove(best, x, y, size, orientation);
+            }
+
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void dispatchChessMove(
+            String move,
+            int x,
+            int y,
+            int size,
+            String orientation
+    ) {
+        String from = move.substring(0, 2);
+        String to = move.substring(2, 4);
+        float cell = size / 8f;
+
+        Point a = center(from, x, y, cell, orientation);
+        Point b = center(to, x, y, cell, orientation);
+
+        Path path = new Path();
+        path.moveTo(a.x, a.y);
+        path.lineTo(b.x, b.y);
+
+        GestureDescription.StrokeDescription stroke =
+                new GestureDescription.StrokeDescription(
+                        path,
+                        0,
+                        280
+                );
+
+        dispatchGesture(
+                new GestureDescription.Builder()
+                        .addStroke(stroke)
+                        .build(),
+                null,
+                null
+        );
+    }
+
+    private Point center(
+            String square,
+            int x,
+            int y,
+            float cell,
+            String orientation
+    ) {
+        int file = square.charAt(0) - 'a';
+        int rank = square.charAt(1) - '1';
+
+        int screenFile;
+        int screenRank;
+
+        if ("black".equalsIgnoreCase(orientation)) {
+            screenFile = 7 - file;
+            screenRank = rank;
+        } else {
+            screenFile = file;
+            screenRank = 7 - rank;
+        }
+
+        return new Point(
+                x + (screenFile + .5f) * cell,
+                y + (screenRank + .5f) * cell
+        );
+    }
+
+    private static final class Point {
+        final float x;
+        final float y;
+
+        Point(float x, float y) {
+            this.x = x;
+            this.y = y;
+        }
+    }
+
+    private String escape(String value) {
+        return value
+                .replace("\\", "\\\\")
+                .replace(""", "\"");
+    }
+
+    @Override
+    public void onAccessibilityEvent(AccessibilityEvent event) {
+        // App-specific window detection will be added through profiles.
+    }
+
+    @Override
+    public void onInterrupt() {
+        handler.removeCallbacks(captureLoop);
+
+        if (windowManager != null && overlay != null) {
+            try {
+                windowManager.removeView(overlay);
+            } catch (Exception ignored) {
+            }
+        }
+
+        overlay = null;
+    }
+
+    @Override
+    public void onDestroy() {
+        onInterrupt();
+        super.onDestroy();
+    }
+}
