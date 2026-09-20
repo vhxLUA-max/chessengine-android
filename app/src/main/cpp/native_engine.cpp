@@ -60,9 +60,21 @@ bool Engine::analyze(int depth, int movetimeMs, int threads, int hashMb, int mul
     impl_->engine->stop();
     impl_->engine->wait_for_search_finished();
     auto& options = impl_->engine->get_options();
-    options["Threads"] = std::to_string(std::max(1, threads));
-    options["Hash"] = std::to_string(std::max(1, hashMb));
-    options["MultiPV"] = std::to_string(std::max(1, multiPv));
+    {
+        std::istringstream command(
+            "setoption name Threads value " + std::to_string(std::max(1, threads)));
+        options.setoption(command);
+    }
+    {
+        std::istringstream command(
+            "setoption name Hash value " + std::to_string(std::max(1, hashMb)));
+        options.setoption(command);
+    }
+    {
+        std::istringstream command(
+            "setoption name MultiPV value " + std::to_string(std::max(1, multiPv)));
+        options.setoption(command);
+    }
     {
         std::lock_guard<std::mutex> stateLock(impl_->state.mutex);
         impl_->state.finished = false;
