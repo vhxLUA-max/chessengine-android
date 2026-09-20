@@ -346,14 +346,14 @@ public final class ChessAccessibilityServiceV2 extends AccessibilityService {
                 }
             }
 
-            Integer evalCp = root.has("score_cp")
-                    && !root.isNull("score_cp")
-                    ? root.optInt("score_cp")
+            Integer evalCp = root.has("score_cp_white")
+                    && !root.isNull("score_cp_white")
+                    ? root.optInt("score_cp_white")
                     : null;
 
-            Integer evalMate = root.has("mate")
-                    && !root.isNull("mate")
-                    ? root.optInt("mate")
+            Integer evalMate = root.has("mate_white")
+                    && !root.isNull("mate_white")
+                    ? root.optInt("mate_white")
                     : null;
 
             double accuracy = -1;
