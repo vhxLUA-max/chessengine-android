@@ -78,7 +78,7 @@ public class ChessAccessibilityService extends AccessibilityService {
                                 sendFrame(copy);
                                 copy.recycle();
                             } finally {
-                                if (b != null && b != result.getHardwareBuffer()) {
+                                if (b != null) {
                                     b.recycle();
                                 }
                                 result.getHardwareBuffer().close();
