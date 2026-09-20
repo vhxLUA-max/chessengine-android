@@ -17,7 +17,7 @@
         </activity>
 
         <service
-            android:name=".ChessAccessibilityService"
+            android:name=".ChessAccessibilityServiceV2"
             android:description="@string/accessibility_description"
             android:exported="true"
             android:label="Cheezie Android Service"
