@@ -1,0 +1,10 @@
+{
+  "engine_path": "engine/stockfish",
+  "host": "127.0.0.1",
+  "port": 8765,
+  "threads": 2,
+  "hash": 128,
+  "multipv": 3,
+  "depth": 12,
+  "token": ""
+}
