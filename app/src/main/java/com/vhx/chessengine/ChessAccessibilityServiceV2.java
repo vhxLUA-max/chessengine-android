@@ -27,6 +27,7 @@ public final class ChessAccessibilityServiceV2 extends AccessibilityService {
 
     private String lastAutoMove = null;
     private boolean captureBusy = false;
+    private volatile boolean requestBusy = false;
 
     private final Runnable captureLoop = new Runnable() {
         @Override
@@ -130,6 +131,10 @@ public final class ChessAccessibilityServiceV2 extends AccessibilityService {
     }
 
     private void sendFrame(Bitmap screen) {
+        if (requestBusy) {
+            return;
+        }
+
         String baseUrl = MainActivity.pref(
                 this,
                 MainActivity.API_URL,
@@ -179,15 +184,20 @@ public final class ChessAccessibilityServiceV2 extends AccessibilityService {
                 BoardDefaults.START_FEN
         );
 
+        int multipv = MainActivity.pref(this, MainActivity.MULTIPV, 5);
+        int depth = MainActivity.pref(this, MainActivity.DEPTH, 12);
+
         String json =
                 "{"
                         + "\"session_id\":\"android-main\","
                         + "\"cells\":" + cells + ","
                         + "\"initial_fen\":\"" + escape(initialFen) + "\","
                         + "\"orientation\":\"" + escape(orientation) + "\","
-                        + "\"multipv\":5,"
-                        + "\"depth\":12"
+                        + "\"multipv\":" + clamp(multipv, 1, 10) + ","
+                        + "\"depth\":" + clamp(depth, 1, 30)
                         + "}";
+
+        requestBusy = true;
 
         new Thread(() -> {
             try {
@@ -206,6 +216,8 @@ public final class ChessAccessibilityServiceV2 extends AccessibilityService {
                         orientation
                 );
             } catch (Exception ignored) {
+            } finally {
+                requestBusy = false;
             }
         }).start();
     }
@@ -297,12 +309,16 @@ public final class ChessAccessibilityServiceV2 extends AccessibilityService {
             };
 
             if (lines != null) {
-                for (int i = 0; i < Math.min(5, lines.length()); i++) {
+                for (int i = 0; i < Math.min(10, lines.length()); i++) {
                     JSONObject line = lines.optJSONObject(i);
-                    if (line == null) continue;
+                    if (line == null) {
+                        continue;
+                    }
 
                     String move = line.optString("bestmove_uci", "");
-                    if (move.length() < 4) continue;
+                    if (move.length() < 4) {
+                        continue;
+                    }
 
                     next.add(
                             new OverlayViewV2.Arrow(
@@ -312,17 +328,80 @@ public final class ChessAccessibilityServiceV2 extends AccessibilityService {
                                     Math.max(5, size / 75f)
                             )
                     );
+
+                    if (next.size() >= 5) {
+                        break;
+                    }
                 }
             }
 
+            Integer evalCp = root.has("score_cp")
+                    && !root.isNull("score_cp")
+                    ? root.optInt("score_cp")
+                    : null;
+
+            Integer evalMate = root.has("mate")
+                    && !root.isNull("mate")
+                    ? root.optInt("mate")
+                    : null;
+
+            double accuracy = -1;
+            String classification = "";
+            String coach = "";
+
+            JSONObject moveAnalysis = root.optJSONObject("move_analysis");
+
+            if (moveAnalysis != null) {
+                if (moveAnalysis.has("accuracy")
+                        && !moveAnalysis.isNull("accuracy")) {
+                    accuracy = moveAnalysis.optDouble("accuracy", -1);
+                }
+
+                classification = moveAnalysis.optString(
+                        "classification",
+                        ""
+                );
+                coach = moveAnalysis.optString("coach", "");
+            }
+
+            boolean showEval = MainActivity.pref(
+                    this,
+                    MainActivity.SHOW_EVAL,
+                    true
+            );
+
+            boolean showClassification = MainActivity.pref(
+                    this,
+                    MainActivity.MOVE_CLASSIFICATION,
+                    true
+            );
+
+            boolean showCoach = MainActivity.pref(
+                    this,
+                    MainActivity.COACH,
+                    true
+            );
+
             boolean changed = root.optBoolean("changed", false);
+            boolean gameOver = root.optBoolean("game_over", false);
             String side = root.optString("side", "");
             String best = root.optString("bestmove_uci", "");
+            String fen = root.optString("fen", "");
 
             handler.post(() -> {
                 if (overlay != null) {
                     overlay.setBoard(x, y, size, orientation);
                     overlay.setArrows(next);
+                    overlay.setAnalysis(
+                            evalCp,
+                            evalMate,
+                            accuracy,
+                            classification,
+                            coach,
+                            showEval,
+                            showClassification,
+                            showCoach
+                    );
                 }
             });
 
@@ -338,17 +417,31 @@ public final class ChessAccessibilityServiceV2 extends AccessibilityService {
                     false
             );
 
+            boolean correctTurn =
+                    side.equalsIgnoreCase(userSide)
+                            && !gameOver;
+
+            // Promotion moves need an explicit promotion-piece interaction
+            // and are therefore intentionally excluded from auto input here.
+            boolean normalMove = best.length() == 4;
+            String autoMoveKey = fen + ":" + best;
+
             if (
                     autoMove
                             && changed
-                            && side.equalsIgnoreCase(userSide)
-                            && best.length() >= 4
-                            && !best.equals(lastAutoMove)
+                            && correctTurn
+                            && normalMove
+                            && !autoMoveKey.equals(lastAutoMoveKey)
             ) {
-                lastAutoMove = best;
-                dispatchChessMove(best, x, y, size, orientation);
+                lastAutoMoveKey = autoMoveKey;
+                dispatchChessMove(
+                        best,
+                        x,
+                        y,
+                        size,
+                        orientation
+                );
             }
-
         } catch (Exception ignored) {
         }
     }
