@@ -5,6 +5,7 @@ plugins {
 android {
     namespace = "com.vhx.chessengine"
     compileSdk = 37
+    ndkVersion = "27.3.13750724"
 
     defaultConfig {
         applicationId = "com.vhx.chessengine"
@@ -12,8 +13,6 @@ android {
         targetSdk = 37
         versionCode = 1
         versionName = "1.0.0"
-        ndkVersion = "27.3.13750724"
-
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a")
         }
