@@ -23,7 +23,7 @@ The service runs Stockfish locally and exposes a small API for FEN analysis. It 
 - Python 3
 - ARM64 Android recommended
 
-Stockfish 19 is currently the official stable release. The official release provides Android ARM64-universal and ARMv7-neon binaries. citeturn426201search0turn227268search0
+Stockfish 19 is currently the official stable release. The official release provides Android ARM64-universal and ARMv7-neon binaries.
 
 ## Install
 
