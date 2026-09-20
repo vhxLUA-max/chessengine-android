@@ -9,4 +9,4 @@ if [ ! -x "$ROOT/engine/stockfish" ]; then
   exit 1
 fi
 
-exec python "$ROOT/engine_server.py" "$@"
+exec python "$ROOT/server.py" "$@"
