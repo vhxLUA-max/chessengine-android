@@ -1,73 +1,113 @@
 #!/usr/bin/env python3
 
+import math
 import threading
-from dataclasses import dataclass
 
 import chess
+
 
 START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 
 
-@dataclass
-class Session:
-    board: chess.Board
-    stable: list[float] | None = None
-    last_affected: set[str] | None = None
-    last_move: str | None = None
-    orientation: str = "white"
-
-
 class BoardTracker:
-    def __init__(self, threshold: float = 16.0):
-        self.threshold = float(threshold)
-        self.sessions: dict[str, Session] = {}
+    """
+    Conservative live board tracker based on per-square visual signatures.
+
+    Android sends four values per square:
+    mean R, mean G, mean B, and grayscale variance.
+
+    The tracker never invents a chess move from an arbitrary visual change.
+    It waits for stable frames, maps changed screen cells to chess squares,
+    and accepts a move only when it uniquely matches a legal move from the
+    current board.
+    """
+
+    def __init__(self):
+        self.sessions = {}
         self.lock = threading.RLock()
 
-    def reset(self, session_id: str, fen: str = START_FEN, orientation: str = "white"):
-        board = chess.Board(fen)
-        with self.lock:
-            self.sessions[session_id] = Session(
-                board=board,
-                orientation=orientation or "white",
-            )
+    @staticmethod
+    def _validate_cells(cells):
+        if not isinstance(cells, list) or len(cells) != 256:
+            raise ValueError("cells must contain exactly 256 numeric values")
+
+        values = []
+        for value in cells:
+            try:
+                number = float(value)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("cells must contain numeric values") from exc
+
+            if not math.isfinite(number):
+                raise ValueError("cells contain a non-finite value")
+
+            values.append(number)
+
+        return values
 
     @staticmethod
-    def _diff(a, b):
+    def _cell_vector(cells, index):
+        start = index * 4
+        return cells[start:start + 4]
+
+    @staticmethod
+    def _cell_distance(a, b):
         rgb = (
             abs(a[0] - b[0])
             + abs(a[1] - b[1])
             + abs(a[2] - b[2])
         ) / 3.0
-        variance = abs(a[3] - b[3]) ** 0.5
-        return rgb + variance * 0.20
 
-    def _changed(self, old, new):
-        result = set()
+        variance = abs(a[3] - b[3])
+        return rgb * 0.72 + variance * 0.28
 
-        for i in range(64):
-            a = old[i * 4:(i + 1) * 4]
-            b = new[i * 4:(i + 1) * 4]
+    @classmethod
+    def _frame_distance(cls, old_cells, new_cells):
+        total = 0.0
+        maximum = 0.0
 
-            if self._diff(a, b) >= self.threshold:
-                file_index = i % 8
-                rank_from_top = i // 8
-                result.add(chr(ord("a") + file_index) + str(8 - rank_from_top))
+        for index in range(64):
+            distance = cls._cell_distance(
+                cls._cell_vector(old_cells, index),
+                cls._cell_vector(new_cells, index),
+            )
+            total += distance
+            maximum = max(maximum, distance)
 
-        return result
+        return total / 64.0, maximum
+
+    @classmethod
+    def _changed_indices(cls, old_cells, new_cells):
+        changed = []
+
+        for index in range(64):
+            distance = cls._cell_distance(
+                cls._cell_vector(old_cells, index),
+                cls._cell_vector(new_cells, index),
+            )
+
+            if distance >= 10.0:
+                changed.append(index)
+
+        return changed
 
     @staticmethod
-    def _affected(board, move):
-        squares = {
-            chess.square_name(move.from_square),
-            chess.square_name(move.to_square),
-        }
+    def _square_from_index(index, orientation):
+        row = index // 8
+        col = index % 8
 
-        if board.is_en_passant(move):
-            capture_square = chess.square(
-                chess.square_file(move.to_square),
-                chess.square_rank(move.from_square),
-            )
-            squares.add(chess.square_name(capture_square))
+        if str(orientation).lower() == "black":
+            file_index = 7 - col
+            rank_index = row
+        else:
+            file_index = col
+            rank_index = 7 - row
+
+        return chess.square(file_index, rank_index)
+
+    @classmethod
+    def _expected_squares(cls, board, move):
+        squares = {move.from_square, move.to_square}
 
         if board.is_castling(move):
             rank = chess.square_rank(move.from_square)
@@ -79,107 +119,212 @@ class BoardTracker:
                 rook_from = chess.square(0, rank)
                 rook_to = chess.square(3, rank)
 
-            squares.add(chess.square_name(rook_from))
-            squares.add(chess.square_name(rook_to))
+            squares.update((rook_from, rook_to))
+
+        elif board.is_en_passant(move):
+            captured = chess.square(
+                chess.square_file(move.to_square),
+                chess.square_rank(move.from_square),
+            )
+            squares.add(captured)
 
         return squares
 
-    def _infer(self, session, changed):
-        if not changed:
-            return None, None
+    @classmethod
+    def _infer_move(cls, board, changed_squares):
+        changed = set(changed_squares)
 
-        old_highlight = session.last_affected or set()
+        if len(changed) < 2 or len(changed) > 10:
+            return None, True, []
+
         candidates = []
 
-        for move in session.board.legal_moves:
-            affected = self._affected(session.board, move)
+        for move in board.legal_moves:
+            expected = cls._expected_squares(board, move)
 
-            if affected == changed:
-                candidates.append((move, affected, 100))
-            elif affected.issubset(changed) and changed - affected <= old_highlight:
-                candidates.append((move, affected, 90))
+            if move.from_square not in changed or move.to_square not in changed:
+                continue
+
+            overlap = len(expected & changed)
+            extras = len(changed - expected)
+
+            if overlap != len(expected):
+                continue
+
+            if extras > 5:
+                continue
+
+            score = overlap * 12.0 - extras * 1.5
+
+            if changed == expected:
+                score += 20.0
+            elif extras <= 2:
+                score += 8.0
+
+            candidates.append((score, move))
 
         if not candidates:
-            return None, None
+            return None, True, []
 
-        candidates.sort(
-            key=lambda item: (
-                -item[2],
-                0 if item[0].promotion == chess.QUEEN else 1,
-                item[0].uci(),
+        candidates.sort(key=lambda item: item[0], reverse=True)
+
+        best_score, best_move = candidates[0]
+        second_score = candidates[1][0] if len(candidates) > 1 else -999.0
+
+        if best_score < 18.0:
+            return None, True, [move.uci() for _, move in candidates[:8]]
+
+        if len(candidates) > 1 and best_score - second_score < 5.0:
+            return None, True, [move.uci() for _, move in candidates[:8]]
+
+        return best_move, False, []
+
+    def _new_session(self, session_id, fen, orientation):
+        board = chess.Board(fen)
+        return {
+            "board": board,
+            "orientation": orientation or "white",
+            "last_frame": None,
+            "stable_count": 0,
+            "committed_cells": None,
+            "last_move": None,
+            "move_number": 0,
+        }
+
+    def reset(self, session_id, fen=START_FEN, orientation="white"):
+        try:
+            board = chess.Board(fen)
+        except ValueError as exc:
+            raise ValueError("invalid FEN: " + str(exc)) from exc
+
+        with self.lock:
+            state = self._new_session(session_id, board.fen(), orientation)
+            self.sessions[str(session_id)] = state
+            return state["board"].fen()
+
+    def set_fen(self, session_id, fen, orientation="white"):
+        return self.reset(session_id, fen, orientation)
+
+    def process(self, session_id, cells, initial_fen=START_FEN, orientation="white"):
+        values = self._validate_cells(cells)
+        session_id = str(session_id)
+
+        with self.lock:
+            state = self.sessions.get(session_id)
+
+            if state is None:
+                self.reset(session_id, initial_fen or START_FEN, orientation)
+                state = self.sessions[session_id]
+
+            state["orientation"] = orientation or state["orientation"]
+
+            if state["last_frame"] is None:
+                state["last_frame"] = values
+                return self._response(state)
+
+            average, maximum = self._frame_distance(
+                state["last_frame"],
+                values,
             )
-        )
+            state["last_frame"] = values
 
-        score = candidates[0][2]
-        top = [item for item in candidates if item[2] == score]
+            # A visual move may be animated. Do not inspect it until the
+            # board has produced two consecutive stable frames.
+            if average <= 4.0 and maximum <= 25.0:
+                state["stable_count"] += 1
+            else:
+                state["stable_count"] = 0
+                return self._response(state)
 
-        if len(top) > 1:
-            return None, sorted(item[0].uci() for item in top)
+            if state["stable_count"] < 2:
+                return self._response(state)
 
-        return candidates[0][0], candidates[0][1]
+            if state["committed_cells"] is None:
+                state["committed_cells"] = values
+                return self._response(state)
+
+            changed_indices = self._changed_indices(
+                state["committed_cells"],
+                values,
+            )
+
+            if not changed_indices:
+                return self._response(state)
+
+            changed_squares = {
+                self._square_from_index(index, state["orientation"])
+                for index in changed_indices
+            }
+
+            move, ambiguous, candidates = self._infer_move(
+                state["board"],
+                changed_squares,
+            )
+
+            if move is None:
+                # Keep the old committed position. Waiting is safer than
+                # advancing the game state from an uncertain screenshot.
+                return self._response(
+                    state,
+                    ambiguous=ambiguous,
+                    changed_squares=changed_squares,
+                    candidates=candidates,
+                )
+
+            previous_fen = state["board"].fen()
+            san = state["board"].san(move)
+            state["board"].push(move)
+            state["committed_cells"] = values
+            state["stable_count"] = 0
+            state["last_move"] = move.uci()
+            state["move_number"] += 1
+
+            return self._response(
+                state,
+                changed=True,
+                move_uci=move.uci(),
+                move_san=san,
+                previous_fen=previous_fen,
+                changed_squares=changed_squares,
+            )
 
     @staticmethod
-    def _response(session, changed=False, ambiguous=False, squares=None, candidates=None):
+    def _response(
+        state,
+        changed=False,
+        ambiguous=False,
+        move_uci=None,
+        move_san=None,
+        previous_fen=None,
+        changed_squares=None,
+        candidates=None,
+    ):
+        board = state["board"]
+
         payload = {
             "ok": True,
-            "changed": changed,
-            "ambiguous": ambiguous,
-            "fen": session.board.fen(),
-            "side": "white" if session.board.turn == chess.WHITE else "black",
-            "last_move": session.last_move,
-            "changed_squares": sorted(squares or []),
+            "changed": bool(changed),
+            "ambiguous": bool(ambiguous),
+            "fen": board.fen(),
+            "side": "white" if board.turn == chess.WHITE else "black",
+            "move_uci": move_uci,
+            "move_san": move_san,
+            "last_move_uci": state["last_move"],
+            "move_number": state["move_number"],
+            "game_over": board.is_game_over(),
+            "check": board.is_check(),
+            "checkmate": board.is_checkmate(),
+            "stalemate": board.is_stalemate(),
+            "changed_squares": sorted(
+                chess.square_name(square)
+                for square in (changed_squares or set())
+            ),
         }
+
+        if previous_fen is not None:
+            payload["previous_fen"] = previous_fen
 
         if candidates:
             payload["candidates"] = candidates
 
         return payload
-
-    def process(self, session_id, cells, initial_fen=START_FEN, orientation="white"):
-        if not isinstance(cells, list) or len(cells) != 256:
-            raise ValueError("cells must contain exactly 256 numbers")
-
-        normalized = [float(value) for value in cells]
-
-        with self.lock:
-            if session_id not in self.sessions:
-                self.reset(session_id, initial_fen or START_FEN, orientation)
-
-            session = self.sessions[session_id]
-            session.orientation = orientation or session.orientation
-
-            if session.stable is None:
-                session.stable = normalized
-                return self._response(session)
-
-            changed = self._changed(session.stable, normalized)
-
-            if not changed:
-                return self._response(session)
-
-            move, extra = self._infer(session, changed)
-
-            if move is None:
-                return self._response(
-                    session,
-                    ambiguous=bool(extra),
-                    squares=changed,
-                    candidates=extra,
-                )
-
-            affected = extra
-            session.board.push(move)
-            session.stable = normalized
-            session.last_affected = affected
-            session.last_move = move.uci()
-
-            return self._response(
-                session,
-                changed=True,
-                squares=changed,
-            )
-
-    def set_fen(self, session_id, fen, orientation="white"):
-        self.reset(session_id, fen, orientation)
-        with self.lock:
-            return self.sessions[session_id].board.fen()
