@@ -264,9 +264,6 @@ class BoardTracker:
                 )
 
             average, maximum = direct_average, direct_maximum
-                state["last_frame"],
-                values,
-            )
             state["last_frame"] = values
 
             # A visual move may be animated. Do not inspect it until the
