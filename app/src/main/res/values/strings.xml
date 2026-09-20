@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Cheezie Android</string>
+    <string name="accessibility_description">Reads the active chess board for analysis and can display analysis controls over the board. Gesture automation is user-controlled.</string>
+</resources>
