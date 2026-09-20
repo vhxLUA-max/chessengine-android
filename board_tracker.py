@@ -137,6 +137,20 @@ class BoardTracker:
         if len(changed) < 2 or len(changed) > 10:
             return None, True, []
 
+        exact = []
+
+        for move in board.legal_moves:
+            expected = cls._expected_squares(board, move)
+
+            if expected == changed:
+                exact.append(move)
+
+        if len(exact) == 1:
+            return exact[0], False, []
+
+        if len(exact) > 1:
+            return None, True, [move.uci() for move in exact[:8]]
+
         candidates = []
 
         for move in board.legal_moves:
@@ -156,9 +170,7 @@ class BoardTracker:
 
             score = overlap * 12.0 - extras * 1.5
 
-            if changed == expected:
-                score += 20.0
-            elif extras <= 2:
+            if extras <= 2:
                 score += 8.0
 
             candidates.append((score, move))
