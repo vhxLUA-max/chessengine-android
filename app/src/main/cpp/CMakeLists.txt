@@ -30,7 +30,7 @@ if(ANDROID_ABI STREQUAL "arm64-v8a")
     target_compile_options(cheeziengine PRIVATE -march=armv8-a)
 elseif(ANDROID_ABI STREQUAL "armeabi-v7a")
     target_compile_definitions(cheeziengine PRIVATE USE_NEON=7)
-    target_compile_options(cheeziengine PRIVATE -march=armv7-a -mfpu=neon -mfloat-abi=softfp)
+    target_compile_options(cheeziengine PRIVATE -march=armv7-a -mfpu=neon)
 endif()
 
 find_library(log-lib log)
