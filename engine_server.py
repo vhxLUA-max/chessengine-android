@@ -112,6 +112,21 @@ class EngineService:
         cp = pov.score(mate_score=100000)
         return (int(cp) if cp is not None else None), None
 
+    @staticmethod
+    def _score_white(info):
+        score = info.get("score")
+        if score is None:
+            return None, None
+
+        pov = score.pov(chess.WHITE)
+        mate = pov.mate()
+
+        if mate is not None:
+            return None, int(mate)
+
+        cp = pov.score(mate_score=100000)
+        return (int(cp) if cp is not None else None), None
+
     def analyze(self, body):
         fen = body.get("fen")
 
@@ -146,6 +161,7 @@ class EngineService:
         for index, info in enumerate(infos, start=1):
             pv_uci, pv_san = self._verified_pv(board, info.get("pv") or [])
             score_cp, mate = self._score(info, board)
+            score_cp_white, mate_white = self._score_white(info)
 
             lines.append(
                 {
@@ -154,6 +170,8 @@ class EngineService:
                     "seldepth": info.get("seldepth"),
                     "score_cp": score_cp,
                     "mate": mate,
+                    "score_cp_white": score_cp_white,
+                    "mate_white": mate_white,
                     "bestmove_uci": pv_uci[0] if pv_uci else None,
                     "bestmove_san": pv_san[0] if pv_san else None,
                     "pv_uci": pv_uci,
@@ -173,7 +191,7 @@ class EngineService:
 
 
 class APIHandler(BaseHTTPRequestHandler):
-    server_version = "CheezieTermuxEngine/1.0"
+    server_version = "CheezieTermuxEngine/1.1"
 
     def _json(self, status, payload):
         body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
@@ -270,6 +288,8 @@ class APIHandler(BaseHTTPRequestHandler):
                 "bestmove_san": first.get("bestmove_san"),
                 "score_cp": first.get("score_cp"),
                 "mate": first.get("mate"),
+                "score_cp_white": first.get("score_cp_white"),
+                "mate_white": first.get("mate_white"),
                 "depth": first.get("depth"),
             }
 
