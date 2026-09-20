@@ -9,10 +9,11 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.view.Gravity;
-import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
+import android.widget.Switch;
 import android.widget.TextView;
 
 public class MainActivity extends Activity {
@@ -26,6 +27,11 @@ public class MainActivity extends Activity {
     public static final String AUTO_MOVE = "auto_move";
     public static final String USER_SIDE = "user_side";
     public static final String INITIAL_FEN = "initial_fen";
+    public static final String DEPTH = "depth";
+    public static final String MULTIPV = "multipv";
+    public static final String SHOW_EVAL = "show_eval";
+    public static final String MOVE_CLASSIFICATION = "move_classification";
+    public static final String COACH = "coach";
 
     private EditText apiUrl;
     private EditText token;
@@ -33,12 +39,23 @@ public class MainActivity extends Activity {
     private EditText boardY;
     private EditText boardSize;
     private EditText orientation;
+    private EditText userSide;
+    private EditText initialFen;
+    private EditText depth;
+    private EditText multipv;
+
+    private Switch autoMove;
+    private Switch showEval;
+    private Switch moveClassification;
+    private Switch coach;
 
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
 
         SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
+
+        ScrollView scroll = new ScrollView(this);
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -63,19 +80,76 @@ public class MainActivity extends Activity {
         );
         root.addView(serviceState);
 
-        apiUrl = field("Termux API URL", p.getString(API_URL, "http://127.0.0.1:8765"));
-        token = field("Bearer token (optional)", p.getString(TOKEN, ""));
-        boardX = field("Board X", String.valueOf(p.getInt(BOARD_X, 0)));
-        boardY = field("Board Y", String.valueOf(p.getInt(BOARD_Y, 0)));
-        boardSize = field("Board size", String.valueOf(p.getInt(BOARD_SIZE, 0)));
-        orientation = field("Orientation: white or black", p.getString(ORIENTATION, "white"));
+        root.addView(text("CONNECTION", 12, Color.rgb(120, 205, 145)));
+
+        apiUrl = field(
+                "Termux API URL",
+                p.getString(API_URL, "http://127.0.0.1:8765")
+        );
+        token = field(
+                "Bearer token (optional)",
+                p.getString(TOKEN, "")
+        );
 
         root.addView(apiUrl);
         root.addView(token);
+
+        root.addView(text("BOARD", 12, Color.rgb(120, 205, 145)));
+
+        boardX = field("Board X", String.valueOf(p.getInt(BOARD_X, 0)));
+        boardY = field("Board Y", String.valueOf(p.getInt(BOARD_Y, 0)));
+        boardSize = field("Board size", String.valueOf(p.getInt(BOARD_SIZE, 0)));
+        orientation = field(
+                "Orientation: white or black",
+                p.getString(ORIENTATION, "white")
+        );
+        userSide = field(
+                "Your side: white or black",
+                p.getString(USER_SIDE, "white")
+        );
+        initialFen = field(
+                "Initial FEN",
+                p.getString(INITIAL_FEN, BoardDefaults.START_FEN)
+        );
+
         root.addView(boardX);
         root.addView(boardY);
         root.addView(boardSize);
         root.addView(orientation);
+        root.addView(userSide);
+        root.addView(initialFen);
+
+        root.addView(text("ENGINE", 12, Color.rgb(120, 205, 145)));
+
+        depth = field("Depth (1-30)", String.valueOf(p.getInt(DEPTH, 12)));
+        multipv = field("Analysis lines (1-10)", String.valueOf(p.getInt(MULTIPV, 5)));
+
+        root.addView(depth);
+        root.addView(multipv);
+
+        root.addView(text("FEATURES", 12, Color.rgb(120, 205, 145)));
+
+        autoMove = toggle(
+                "Auto move",
+                p.getBoolean(AUTO_MOVE, false)
+        );
+        showEval = toggle(
+                "Evaluation bar",
+                p.getBoolean(SHOW_EVAL, true)
+        );
+        moveClassification = toggle(
+                "Move classification + accuracy",
+                p.getBoolean(MOVE_CLASSIFICATION, true)
+        );
+        coach = toggle(
+                "Coach message",
+                p.getBoolean(COACH, true)
+        );
+
+        root.addView(autoMove);
+        root.addView(showEval);
+        root.addView(moveClassification);
+        root.addView(coach);
 
         Button save = button("SAVE SETTINGS");
         save.setOnClickListener(v -> saveSettings());
@@ -98,7 +172,8 @@ public class MainActivity extends Activity {
         });
         root.addView(openTermux);
 
-        setContentView(root);
+        scroll.addView(root);
+        setContentView(scroll);
     }
 
     private TextView text(String value, int size, int color) {
@@ -128,6 +203,20 @@ public class MainActivity extends Activity {
         return e;
     }
 
+    private Switch toggle(String label, boolean checked) {
+        Switch s = new Switch(this);
+        s.setText(label);
+        s.setTextColor(Color.WHITE);
+        s.setTextSize(12);
+        s.setChecked(checked);
+        s.setPadding(0, 6, 0, 6);
+        s.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
+        return s;
+    }
+
     private Button button(String label) {
         Button b = new Button(this);
         b.setText(label);
@@ -135,6 +224,7 @@ public class MainActivity extends Activity {
         b.setTextColor(Color.WHITE);
         b.setAllCaps(false);
         b.setGravity(Gravity.CENTER);
+
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
@@ -146,12 +236,31 @@ public class MainActivity extends Activity {
 
     private void saveSettings() {
         SharedPreferences.Editor e = getSharedPreferences(PREFS, MODE_PRIVATE).edit();
+
         e.putString(API_URL, apiUrl.getText().toString().trim());
         e.putString(TOKEN, token.getText().toString().trim());
         e.putInt(BOARD_X, number(boardX, 0));
         e.putInt(BOARD_Y, number(boardY, 0));
         e.putInt(BOARD_SIZE, number(boardSize, 0));
-        e.putString(ORIENTATION, orientation.getText().toString().trim().toLowerCase());
+        e.putString(
+                ORIENTATION,
+                orientation.getText().toString().trim().toLowerCase()
+        );
+        e.putString(
+                USER_SIDE,
+                userSide.getText().toString().trim().toLowerCase()
+        );
+        e.putString(
+                INITIAL_FEN,
+                initialFen.getText().toString().trim()
+        );
+        e.putInt(DEPTH, clamp(number(depth, 12), 1, 30));
+        e.putInt(MULTIPV, clamp(number(multipv, 5), 1, 10));
+        e.putBoolean(AUTO_MOVE, autoMove.isChecked());
+        e.putBoolean(SHOW_EVAL, showEval.isChecked());
+        e.putBoolean(MOVE_CLASSIFICATION, moveClassification.isChecked());
+        e.putBoolean(COACH, coach.isChecked());
+
         e.apply();
     }
 
@@ -163,8 +272,13 @@ public class MainActivity extends Activity {
         }
     }
 
+    private int clamp(int value, int min, int max) {
+        return Math.max(min, Math.min(max, value));
+    }
+
     private void testEngine() {
         saveSettings();
+
         TermuxClient.checkHealth(
                 this,
                 apiUrl.getText().toString().trim(),
@@ -173,14 +287,17 @@ public class MainActivity extends Activity {
     }
 
     public static int pref(Context c, String key, int fallback) {
-        return c.getSharedPreferences(PREFS, MODE_PRIVATE).getInt(key, fallback);
+        return c.getSharedPreferences(PREFS, MODE_PRIVATE)
+                .getInt(key, fallback);
     }
 
     public static String pref(Context c, String key, String fallback) {
-        return c.getSharedPreferences(PREFS, MODE_PRIVATE).getString(key, fallback);
+        return c.getSharedPreferences(PREFS, MODE_PRIVATE)
+                .getString(key, fallback);
     }
 
     public static boolean pref(Context c, String key, boolean fallback) {
-        return c.getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(key, fallback);
+        return c.getSharedPreferences(PREFS, MODE_PRIVATE)
+                .getBoolean(key, fallback);
     }
 }
