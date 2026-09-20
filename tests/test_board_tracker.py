@@ -56,6 +56,15 @@ class BoardTrackerTests(unittest.TestCase):
         tracker.reset("black-game", fen, "black")
         base = frame_with_changes()
 
+        self.assertEqual(
+            chess.square_name(tracker._square_from_index(51, "black")),
+            "e7",
+        )
+        self.assertEqual(
+            chess.square_name(tracker._square_from_index(35, "black")),
+            "e5",
+        )
+
         # Black orientation: e7 -> screen index 51, e5 -> 35.
         moved = frame_with_changes({
             51: [140.0, 140.0, 140.0, 20.0],
