@@ -87,7 +87,7 @@ public class CameraActivity extends Activity {
 
             @Override
             public void onSurfaceTextureSizeChanged(
-                    @NonNull SurfaceTexture surface,
+                    SurfaceTexture surface,
                     int width,
                     int height
             ) {
@@ -95,13 +95,13 @@ public class CameraActivity extends Activity {
 
             @Override
             public boolean onSurfaceTextureDestroyed(
-                    @NonNull SurfaceTexture surface
+                    SurfaceTexture surface
             ) {
                 return true;
             }
 
             @Override
-            public void onSurfaceTextureUpdated(@NonNull SurfaceTexture surface) {
+            public void onSurfaceTextureUpdated(SurfaceTexture surface) {
             }
         });
     }
@@ -214,14 +214,14 @@ public class CameraActivity extends Activity {
                         }
 
                         @Override
-                        public void onDisconnected(@NonNull CameraDevice device) {
+                        public void onDisconnected(CameraDevice device) {
                             device.close();
                             camera = null;
                         }
 
                         @Override
                         public void onError(
-                                @NonNull CameraDevice device,
+                                CameraDevice device,
                                 int error
                         ) {
                             device.close();
@@ -284,7 +284,7 @@ public class CameraActivity extends Activity {
 
                         @Override
                         public void onConfigureFailed(
-                                @NonNull CameraCaptureSession configured
+                                CameraCaptureSession configured
                         ) {
                             runOnUiThread(() ->
                                     status.setText("Camera preview could not start.")
