@@ -40,14 +40,20 @@ public final class ChessAccessibilityServiceV2 extends AccessibilityService {
 
     private void updateOverlayVisibility() {
         if (overlay != null) {
-            overlay.setHidden(!MainActivity.pref(this, MainActivity.OVERLAY, true));
+            boolean visible = MainActivity.pref(this, MainActivity.OVERLAY, true)
+                    && MainActivity.pref(this, MainActivity.ANALYZER_RUNNING, false);
+            overlay.setHidden(!visible);
         }
     }
 
     private final Runnable captureLoop = new Runnable() {
         @Override
         public void run() {
-            capture();
+            if (MainActivity.pref(this, MainActivity.ANALYZER_RUNNING, false)) {
+                capture();
+            } else if (overlay != null) {
+                overlay.clearAnalysis();
+            }
             updateOverlayVisibility();
             handler.postDelayed(this, 1000);
         }
@@ -59,7 +65,7 @@ public final class ChessAccessibilityServiceV2 extends AccessibilityService {
 
         windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
         overlay = new OverlayViewV2(this);
-        overlay.setHidden(!MainActivity.pref(this, MainActivity.OVERLAY, true));
+        overlay.setHidden(true);
         try {
             nativeEngine = new NativeChessEngine(prepareNativeEngineDirectory());
         } catch (Exception ignored) {
@@ -162,6 +168,11 @@ public final class ChessAccessibilityServiceV2 extends AccessibilityService {
     }
 
     private void sendFrame(Bitmap screen) {
+        if (!MainActivity.pref(this, MainActivity.ANALYZER_RUNNING, false)) {
+            updateOverlayVisibility();
+            return;
+        }
+
         updateOverlayVisibility();
 
         if (requestBusy) {
@@ -483,7 +494,14 @@ public final class ChessAccessibilityServiceV2 extends AccessibilityService {
 
             handler.post(() -> {
                 if (overlay != null) {
-                    overlay.setHidden(!overlayEnabled);
+                    overlay.setHidden(
+                            !overlayEnabled
+                                    || !MainActivity.pref(
+                                    this,
+                                    MainActivity.ANALYZER_RUNNING,
+                                    false
+                            )
+                    );
                     overlay.setBoard(x, y, size, orientation);
                     overlay.setArrows(next);
                     overlay.setAnalysis(
