@@ -48,6 +48,7 @@ public final class ChessAccessibilityServiceV2 extends AccessibilityService {
 
         windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
         overlay = new OverlayViewV2(this);
+        overlay.setHidden(!MainActivity.pref(this, MainActivity.OVERLAY, true));
 
         WindowManager.LayoutParams params = new WindowManager.LayoutParams(
                 WindowManager.LayoutParams.MATCH_PARENT,
@@ -378,6 +379,12 @@ public final class ChessAccessibilityServiceV2 extends AccessibilityService {
                 coach = moveAnalysis.optString("coach", "");
             }
 
+            boolean overlayEnabled = MainActivity.pref(
+                    this,
+                    MainActivity.OVERLAY,
+                    true
+            );
+
             boolean showEval = MainActivity.pref(
                     this,
                     MainActivity.SHOW_EVAL,
@@ -429,6 +436,7 @@ public final class ChessAccessibilityServiceV2 extends AccessibilityService {
 
             handler.post(() -> {
                 if (overlay != null) {
+                    overlay.setHidden(!overlayEnabled);
                     overlay.setBoard(x, y, size, orientation);
                     overlay.setArrows(next);
                     overlay.setAnalysis(
