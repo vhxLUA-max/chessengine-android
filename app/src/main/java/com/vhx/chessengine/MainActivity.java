@@ -164,6 +164,11 @@ public class MainActivity extends Activity {
         depthRow.addView(depth);
         depthRow.addView(depthValue);
         root.addView(depthRow);
+
+        multipv = field(
+                "MultiPV (1-10)",
+                String.valueOf(clamp(p.getInt(MULTIPV, 5), 1, 10))
+        );
         root.addView(multipv);
 
         root.addView(text("OVERLAY", 12, Color.rgb(120, 205, 145)));
