@@ -38,6 +38,15 @@ android {
     }
 }
 
+tasks.register<Copy>("copyNnueToAssets") {
+    from(file("src/main/cpp/engine/stockfish/nn-1a298aa575a0.nnue"))
+    into(file("src/main/assets"))
+}
+
+tasks.named("preBuild") {
+    dependsOn("copyNnueToAssets")
+}
+
 java {
     toolchain {
         languageVersion = JavaLanguageVersion.of(17)
