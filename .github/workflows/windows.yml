@@ -24,6 +24,23 @@ jobs:
           python -m pip install -r requirements.txt
           python -m pip install pyinstaller
 
+      - name: Download Stockfish 19
+        shell: pwsh
+        run: |
+          $url = "https://github.com/official-stockfish/Stockfish/releases/download/sf_19/stockfish-windows-x86-64-universal.zip"
+          Invoke-WebRequest -Uri $url -OutFile stockfish.zip
+          Expand-Archive -Path stockfish.zip -DestinationPath stockfish-dist -Force
+          $exe = Get-ChildItem stockfish-dist -Recurse -Filter stockfish.exe | Select-Object -First 1
+          if (-not $exe) { throw "Stockfish executable not found in release archive." }
+          Copy-Item $exe.FullName stockfish.exe
+          $nnues = Get-ChildItem stockfish-dist -Recurse -Filter *.nnue
+          if (-not $nnues) { throw "Stockfish NNUE files not found in release archive." }
+          foreach ($nnue in $nnues) {
+            Copy-Item $nnue.FullName $nnue.Name -Force
+          }
+          $license = Get-ChildItem stockfish-dist -Recurse -Filter Copying.txt | Select-Object -First 1
+          if ($license) { Copy-Item $license.FullName Copying.txt -Force }
+
       - name: Validate Python sources
         shell: pwsh
         run: |
@@ -37,7 +54,21 @@ jobs:
       - name: Build EXE
         shell: pwsh
         run: |
-          pyinstaller --noconfirm --clean --onefile --windowed --name Cheezie-Windows windows/cheezie_windows.py
+          $args = @(
+            "--noconfirm",
+            "--clean",
+            "--onefile",
+            "--windowed",
+            "--name", "Cheezie-Windows",
+            "--add-binary", "stockfish.exe;.",
+            "--add-data", "Copying.txt;."
+          )
+          Get-ChildItem -Filter *.nnue | ForEach-Object {
+            $args += "--add-data"
+            $args += "$($_.Name;.)"
+          }
+          $args += "windows/cheezie_windows.py"
+          pyinstaller @args
 
       - name: Upload Windows EXE
         uses: actions/upload-artifact@v4
