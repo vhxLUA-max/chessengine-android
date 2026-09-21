@@ -42,6 +42,7 @@ public class MainActivity extends Activity {
     public static final String COACH = "coach";
     public static final String VOICE_COACH = "voice_coach";
     public static final String ANALYZER_RUNNING = "analyzer_running";
+    public static final String CAPTURE_STATUS = "capture_status";
 
     private static final int BG = Color.rgb(8, 11, 10);
     private static final int CARD = Color.rgb(18, 23, 20);
@@ -53,12 +54,6 @@ public class MainActivity extends Activity {
 
     private EditText apiUrl;
     private EditText token;
-    private EditText boardX;
-    private EditText boardY;
-    private EditText boardSize;
-    private EditText orientation;
-    private EditText userSide;
-    private EditText initialFen;
     private SeekBar depth;
     private TextView depthValue;
     private EditText multipv;
@@ -73,6 +68,7 @@ public class MainActivity extends Activity {
     private Button analyzerButton;
     private TextView analyzerState;
     private TextView serviceState;
+    private TextView captureState;
 
     @Override
     protected void onCreate(Bundle state) {
@@ -123,6 +119,10 @@ public class MainActivity extends Activity {
         serviceState.setPadding(0, dp(9), 0, 0);
         analyzerCard.addView(serviceState);
 
+        captureState = text("", 11, MUTED);
+        captureState.setPadding(0, dp(5), 0, 0);
+        analyzerCard.addView(captureState);
+
         root.addView(analyzerCard);
 
         root.addView(section("CONNECTION"));
@@ -139,29 +139,13 @@ public class MainActivity extends Activity {
         root.addView(token);
 
         root.addView(section("BOARD"));
-
-        boardX = field("Board X", String.valueOf(p.getInt(BOARD_X, 0)));
-        boardY = field("Board Y", String.valueOf(p.getInt(BOARD_Y, 0)));
-        boardSize = field("Board size", String.valueOf(p.getInt(BOARD_SIZE, 0)));
-        orientation = field(
-                "Orientation: white or black",
-                p.getString(ORIENTATION, "white")
+        TextView boardInfo = text(
+                "Automatic board detection is always used. No coordinates or board size are required.",
+                11,
+                MUTED
         );
-        userSide = field(
-                "Your side: white or black",
-                p.getString(USER_SIDE, "white")
-        );
-        initialFen = field(
-                "Initial FEN",
-                p.getString(INITIAL_FEN, BoardDefaults.START_FEN)
-        );
-
-        root.addView(boardX);
-        root.addView(boardY);
-        root.addView(boardSize);
-        root.addView(orientation);
-        root.addView(userSide);
-        root.addView(initialFen);
+        boardInfo.setPadding(0, 0, 0, dp(8));
+        root.addView(boardInfo);
 
         root.addView(section("ENGINE"));
 
@@ -241,6 +225,12 @@ public class MainActivity extends Activity {
                 startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         );
         root.addView(accessibility);
+
+        Button overlayInfo = secondaryButton("OVERLAY: ACCESSIBILITY OVERLAY");
+        overlayInfo.setOnClickListener(v ->
+                startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+        );
+        root.addView(overlayInfo);
 
         Button test = secondaryButton("TEST TERMUX ENGINE");
         test.setOnClickListener(v -> testEngine());
@@ -324,7 +314,7 @@ public class MainActivity extends Activity {
         if (serviceEnabled) {
             serviceState.setText(
                     running
-                            ? "Accessibility service connected. Overlay pipeline is active."
+                            ? "Accessibility service connected. Automatic capture and overlay are enabled."
                             : "Accessibility service enabled. Ready to analyze."
             );
         } else {
@@ -332,6 +322,13 @@ public class MainActivity extends Activity {
                     "Accessibility service is disabled. Enable it to use screen capture and overlay."
             );
         }
+
+        String capture = pref(
+                this,
+                CAPTURE_STATUS,
+                "Waiting for analyzer."
+        );
+        captureState.setText("Capture: " + capture);
     }
 
     private TextView section(String value) {
@@ -452,12 +449,6 @@ public class MainActivity extends Activity {
 
         e.putString(API_URL, apiUrl.getText().toString().trim());
         e.putString(TOKEN, token.getText().toString().trim());
-        e.putInt(BOARD_X, number(boardX, 0));
-        e.putInt(BOARD_Y, number(boardY, 0));
-        e.putInt(BOARD_SIZE, number(boardSize, 0));
-        e.putString(ORIENTATION, orientation.getText().toString().trim().toLowerCase());
-        e.putString(USER_SIDE, userSide.getText().toString().trim().toLowerCase());
-        e.putString(INITIAL_FEN, initialFen.getText().toString().trim());
         e.putInt(DEPTH, clamp(depth.getProgress() + 1, 1, 30));
         e.putBoolean(OVERLAY, overlay.isChecked());
         e.putInt(MULTIPV, clamp(number(multipv, 5), 1, 10));
