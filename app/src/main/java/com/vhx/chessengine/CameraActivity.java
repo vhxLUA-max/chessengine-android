@@ -28,6 +28,7 @@ import android.widget.TextView;
 
 import java.util.Collections;
 
+@SuppressWarnings("deprecation")
 public class CameraActivity extends Activity {
     private static final int CAMERA_REQUEST = 41;
 
