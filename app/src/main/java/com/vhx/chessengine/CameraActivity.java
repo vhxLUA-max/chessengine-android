@@ -15,6 +15,8 @@ import android.hardware.camera2.CameraCharacteristics;
 import android.hardware.camera2.CameraDevice;
 import android.hardware.camera2.CameraManager;
 import android.hardware.camera2.CaptureRequest;
+import android.hardware.camera2.params.StreamConfigurationMap;
+import android.util.Size;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.HandlerThread;
@@ -35,6 +37,7 @@ public class CameraActivity extends Activity {
 
     private CameraDevice camera;
     private CameraCaptureSession session;
+    private boolean openingCamera;
     private HandlerThread cameraThread;
     private Handler cameraHandler;
     private final CameraBoardDetector detector = new CameraBoardDetector();
@@ -170,12 +173,15 @@ public class CameraActivity extends Activity {
 
     private void openCamera() {
         if (camera != null
+                || openingCamera
                 || preview == null
                 || !preview.isAvailable()
                 || checkSelfPermission(Manifest.permission.CAMERA)
                 != PackageManager.PERMISSION_GRANTED) {
             return;
         }
+
+        openingCamera = true;
 
         try {
             CameraManager manager =
@@ -198,6 +204,7 @@ public class CameraActivity extends Activity {
             }
 
             if (cameraId == null) {
+                openingCamera = false;
                 status.setText("No rear camera found.");
                 return;
             }
@@ -209,12 +216,14 @@ public class CameraActivity extends Activity {
                     new CameraDevice.StateCallback() {
                         @Override
                         public void onOpened(CameraDevice device) {
+                            openingCamera = false;
                             camera = device;
                             createPreviewSession();
                         }
 
                         @Override
                         public void onDisconnected(CameraDevice device) {
+                            openingCamera = false;
                             device.close();
                             camera = null;
                         }
@@ -224,6 +233,7 @@ public class CameraActivity extends Activity {
                                 CameraDevice device,
                                 int error
                         ) {
+                            openingCamera = false;
                             device.close();
                             camera = null;
                             runOnUiThread(() ->
@@ -234,6 +244,7 @@ public class CameraActivity extends Activity {
                     cameraHandler
             );
         } catch (Exception e) {
+            openingCamera = false;
             status.setText("Camera could not be opened.");
         }
     }
@@ -245,7 +256,15 @@ public class CameraActivity extends Activity {
 
         try {
             SurfaceTexture texture = preview.getSurfaceTexture();
-            texture.setDefaultBufferSize(1280, 720);
+            CameraManager manager =
+                    (CameraManager) getSystemService(Context.CAMERA_SERVICE);
+            CameraCharacteristics characteristics =
+                    manager.getCameraCharacteristics(camera.getId());
+            StreamConfigurationMap map = characteristics.get(
+                    CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP
+            );
+            Size previewSize = choosePreviewSize(map);
+            texture.setDefaultBufferSize(previewSize.getWidth(), previewSize.getHeight());
 
             Surface surface = new Surface(texture);
 
@@ -298,6 +317,31 @@ public class CameraActivity extends Activity {
         }
     }
 
+    private Size choosePreviewSize(StreamConfigurationMap map) {
+        if (map != null) {
+            Size[] sizes = map.getOutputSizes(SurfaceTexture.class);
+            if (sizes != null && sizes.length > 0) {
+                Size best = sizes[0];
+                double targetRatio = preview.getWidth() / (double) Math.max(1, preview.getHeight());
+                long bestArea = (long) best.getWidth() * best.getHeight();
+                double bestScore = Math.abs((best.getWidth() / (double) best.getHeight()) - targetRatio);
+
+                for (Size size : sizes) {
+                    double ratioScore = Math.abs((size.getWidth() / (double) size.getHeight()) - targetRatio);
+                    long area = (long) size.getWidth() * size.getHeight();
+                    if (ratioScore < bestScore - 0.01
+                            || (Math.abs(ratioScore - bestScore) < 0.01 && area < bestArea)) {
+                        best = size;
+                        bestScore = ratioScore;
+                        bestArea = area;
+                    }
+                }
+                return best;
+            }
+        }
+        return new Size(1280, 720);
+    }
+
     private void detectFrame() {
         if (preview == null || !preview.isAvailable()) {
             return;
@@ -348,6 +392,8 @@ public class CameraActivity extends Activity {
             session.close();
             session = null;
         }
+
+        openingCamera = false;
 
         if (camera != null) {
             camera.close();
