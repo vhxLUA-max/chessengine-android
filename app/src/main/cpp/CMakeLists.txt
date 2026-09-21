@@ -17,7 +17,11 @@ list(REMOVE_ITEM STOCKFISH_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/engine/stockfish/src/main.cpp"
 )
 
-add_library(cheeziengine SHARED native_engine.cpp ${STOCKFISH_SOURCES})
+add_library(cheeziengine SHARED
+    native_engine.cpp
+    jni_bridge.cpp
+    ${STOCKFISH_SOURCES}
+)
 
 target_include_directories(cheeziengine PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/engine/stockfish/src")
 
