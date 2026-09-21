@@ -34,10 +34,17 @@ public final class ChessAccessibilityServiceV2 extends AccessibilityService {
     private boolean captureBusy = false;
     private volatile boolean requestBusy = false;
 
+    private void updateOverlayVisibility() {
+        if (overlay != null) {
+            overlay.setHidden(!MainActivity.pref(this, MainActivity.OVERLAY, true));
+        }
+    }
+
     private final Runnable captureLoop = new Runnable() {
         @Override
         public void run() {
             capture();
+            updateOverlayVisibility();
             handler.postDelayed(this, 1000);
         }
     };
@@ -146,6 +153,8 @@ public final class ChessAccessibilityServiceV2 extends AccessibilityService {
     }
 
     private void sendFrame(Bitmap screen) {
+        updateOverlayVisibility();
+
         if (requestBusy) {
             return;
         }
@@ -189,6 +198,18 @@ public final class ChessAccessibilityServiceV2 extends AccessibilityService {
 
         if (safeSize < 80) {
             return;
+        }
+
+        if (overlay != null) {
+            handler.post(() -> {
+                overlay.setBoard(
+                        safeX,
+                        safeY,
+                        safeSize,
+                        orientation
+                );
+                overlay.clearAnalysis();
+            });
         }
 
         String cells = sampleCells(screen, safeX, safeY, safeSize);
@@ -331,7 +352,7 @@ public final class ChessAccessibilityServiceV2 extends AccessibilityService {
                     }
 
                     String move = line.optString("bestmove_uci", "");
-                    if (move.length() < 4) {
+                    if (!isValidUciMove(move)) {
                         continue;
                     }
 
@@ -491,6 +512,28 @@ public final class ChessAccessibilityServiceV2 extends AccessibilityService {
             }
         } catch (Exception ignored) {
         }
+    }
+
+    private boolean isValidUciMove(String move) {
+        if (move == null || (move.length() != 4 && move.length() != 5)) {
+            return false;
+        }
+
+        return isValidSquare(move.substring(0, 2))
+                && isValidSquare(move.substring(2, 4))
+                && !move.substring(0, 2).equals(move.substring(2, 4));
+    }
+
+    private boolean isValidSquare(String square) {
+        if (square == null || square.length() != 2) {
+            return false;
+        }
+
+        char file = square.charAt(0);
+        char rank = square.charAt(1);
+
+        return file >= 'a' && file <= 'h'
+                && rank >= '1' && rank <= '8';
     }
 
     private void speakCoach(String message) {
