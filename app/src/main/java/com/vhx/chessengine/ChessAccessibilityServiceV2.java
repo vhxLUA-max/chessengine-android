@@ -23,9 +23,12 @@ import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public final class ChessAccessibilityServiceV2 extends AccessibilityService {
     private final Handler handler = new Handler(Looper.getMainLooper());
+    private final ExecutorService analysisExecutor = Executors.newSingleThreadExecutor();
 
     private WindowManager windowManager;
     private OverlayViewV2 overlay;
@@ -34,11 +37,12 @@ public final class ChessAccessibilityServiceV2 extends AccessibilityService {
     private BoardDetector.Result detectedBoard;
     private long lastBoardDetectionMs = 0L;
 
-    private String lastAutoMove = null;
     private TextToSpeech textToSpeech;
     private String lastCoachKey = null;
     private String lastAutoMoveKey = null;
     private boolean captureBusy = false;
+    private volatile boolean requestBusy = false;
+    private volatile boolean destroyed = false;
 
     private void setCaptureStatus(String value) {
         getSharedPreferences(MainActivity.PREFS, MODE_PRIVATE)
@@ -46,7 +50,6 @@ public final class ChessAccessibilityServiceV2 extends AccessibilityService {
                 .putString(MainActivity.CAPTURE_STATUS, value)
                 .apply();
     }
-    private volatile boolean requestBusy = false;
 
     private void updateOverlayVisibility() {
         if (overlay != null) {
@@ -59,6 +62,7 @@ public final class ChessAccessibilityServiceV2 extends AccessibilityService {
     private final Runnable captureLoop = new Runnable() {
         @Override
         public void run() {
+            if (destroyed) return;
             if (MainActivity.pref(
                     ChessAccessibilityServiceV2.this,
                     MainActivity.ANALYZER_RUNNING,
@@ -76,6 +80,7 @@ public final class ChessAccessibilityServiceV2 extends AccessibilityService {
     @Override
     protected void onServiceConnected() {
         super.onServiceConnected();
+        destroyed = false;
 
         windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
         overlay = new OverlayViewV2(this);
@@ -113,7 +118,7 @@ public final class ChessAccessibilityServiceV2 extends AccessibilityService {
     }
 
     private void capture() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R || captureBusy) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R || captureBusy || destroyed) {
             setCaptureStatus("Android 11+ screenshot API required.");
             return;
         }
@@ -129,34 +134,23 @@ public final class ChessAccessibilityServiceV2 extends AccessibilityService {
                         public void onSuccess(ScreenshotResult result) {
                             HardwareBuffer hardwareBuffer = result.getHardwareBuffer();
                             Bitmap wrapped = null;
+                            Bitmap copy = null;
 
                             try {
                                 wrapped = Bitmap.wrapHardwareBuffer(
                                         hardwareBuffer,
                                         result.getColorSpace()
                                 );
+                                if (wrapped == null) return;
 
-                                if (wrapped == null) {
-                                    return;
-                                }
-
-                                Bitmap copy = wrapped.copy(
-                                        Bitmap.Config.ARGB_8888,
-                                        false
-                                );
-
-                                if (copy == null) {
-                                    return;
-                                }
+                                copy = wrapped.copy(Bitmap.Config.ARGB_8888, false);
+                                if (copy == null) return;
 
                                 setCaptureStatus("Screenshot captured; detecting board.");
                                 sendFrame(copy);
-                                copy.recycle();
                             } finally {
-                                if (wrapped != null) {
-                                    wrapped.recycle();
-                                }
-
+                                if (copy != null) copy.recycle();
+                                if (wrapped != null) wrapped.recycle();
                                 hardwareBuffer.close();
                                 captureBusy = false;
                             }
@@ -187,38 +181,22 @@ public final class ChessAccessibilityServiceV2 extends AccessibilityService {
     private int getDisplayIdCompat() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             android.view.Display display = getDisplay();
-            if (display != null) {
-                return display.getDisplayId();
-            }
+            if (display != null) return display.getDisplayId();
         }
-
         return android.view.Display.DEFAULT_DISPLAY;
     }
 
     private void sendFrame(Bitmap screen) {
-        if (!MainActivity.pref(this, MainActivity.ANALYZER_RUNNING, false)) {
+        if (destroyed || !MainActivity.pref(this, MainActivity.ANALYZER_RUNNING, false)) {
             updateOverlayVisibility();
             return;
         }
 
         updateOverlayVisibility();
+        if (requestBusy) return;
 
-        if (requestBusy) {
-            return;
-        }
-
-        String baseUrl = MainActivity.pref(
-                this,
-                MainActivity.API_URL,
-                "http://127.0.0.1:8765"
-        );
-
-        String token = MainActivity.pref(
-                this,
-                MainActivity.TOKEN,
-                ""
-        );
-
+        String baseUrl = MainActivity.pref(this, MainActivity.API_URL, "http://127.0.0.1:8765");
+        String token = MainActivity.pref(this, MainActivity.TOKEN, "");
         long now = android.os.SystemClock.uptimeMillis();
 
         if (detectedBoard == null || now - lastBoardDetectionMs >= 1000L) {
@@ -234,84 +212,44 @@ public final class ChessAccessibilityServiceV2 extends AccessibilityService {
         int x = detectedBoard.x;
         int y = detectedBoard.y;
         int size = detectedBoard.size;
+        String orientation = MainActivity.pref(this, MainActivity.ORIENTATION, "white");
 
-        String orientation = MainActivity.pref(
-                this,
-                MainActivity.ORIENTATION,
-                "white"
-        );
-
-        setCaptureStatus(
-                "Chessboard detected at " + x + "," + y + " size " + size + "."
-        );
+        setCaptureStatus("Chessboard detected at " + x + "," + y + " size " + size + ".");
 
         int safeX = Math.max(0, Math.min(x, screen.getWidth() - 1));
         int safeY = Math.max(0, Math.min(y, screen.getHeight() - 1));
-
-        int safeSize = Math.min(
-                size,
-                Math.min(
-                        screen.getWidth() - safeX,
-                        screen.getHeight() - safeY
-                )
-        );
-
-        if (safeSize < 80) {
-            return;
-        }
+        int safeSize = Math.min(size, Math.min(screen.getWidth() - safeX, screen.getHeight() - safeY));
+        if (safeSize < 80) return;
 
         if (overlay != null) {
-            handler.post(() -> {
-                overlay.setBoard(
-                        safeX,
-                        safeY,
-                        safeSize,
-                        orientation
-                );
-                overlay.clearAnalysis();
-            });
+            handler.post(() -> overlay.setBoard(safeX, safeY, safeSize, orientation));
         }
 
         String cells = sampleCells(screen, safeX, safeY, safeSize);
-
         String initialFen = BoardDefaults.START_FEN;
-
         int multipv = MainActivity.pref(this, MainActivity.MULTIPV, 5);
         int depth = MainActivity.pref(this, MainActivity.DEPTH, 12);
 
         String json =
                 "{"
-                        + "\"session_id\":\"android-main\","
+                        + "\"session_id\":\"android-main\"," 
                         + "\"cells\":" + cells + ","
-                        + "\"initial_fen\":\"" + escape(initialFen) + "\","
-                        + "\"orientation\":\"" + escape(orientation) + "\","
+                        + "\"initial_fen\":\"" + escape(initialFen) + "\"," 
+                        + "\"orientation\":\"" + escape(orientation) + "\"," 
                         + "\"multipv\":" + clamp(multipv, 1, 10) + ","
                         + "\"depth\":" + clamp(depth, 1, 30)
                         + "}";
 
         requestBusy = true;
-
-        new Thread(() -> {
+        analysisExecutor.execute(() -> {
             try {
-                String response = TermuxClient.postJson(
-                        baseUrl,
-                        "/detect",
-                        token,
-                        json
-                );
-
-                applyResponse(
-                        response,
-                        safeX,
-                        safeY,
-                        safeSize,
-                        orientation
-                );
+                String response = TermuxClient.postJson(baseUrl, "/detect", token, json);
+                if (!destroyed) applyResponse(response, safeX, safeY, safeSize, orientation);
             } catch (Exception ignored) {
             } finally {
                 requestBusy = false;
             }
-        }).start();
+        });
     }
 
     private String sampleCells(Bitmap bitmap, int x, int y, int size) {
@@ -324,25 +262,17 @@ public final class ChessAccessibilityServiceV2 extends AccessibilityService {
                 float top = y + row * cell + cell * .16f;
                 float right = x + (col + 1) * cell - cell * .16f;
                 float bottom = y + (row + 1) * cell - cell * .16f;
-
-                long sumR = 0;
-                long sumG = 0;
-                long sumB = 0;
-                long sumGray = 0;
-                long sumGray2 = 0;
+                long sumR = 0, sumG = 0, sumB = 0, sumGray = 0, sumGray2 = 0;
                 int count = 0;
-
                 int sx = Math.max(1, (int) (cell / 9f));
 
                 for (int py = (int) top; py < (int) bottom; py += sx) {
                     for (int px = (int) left; px < (int) right; px += sx) {
                         int pixel = bitmap.getPixel(px, py);
-
                         int r = (pixel >> 16) & 255;
                         int g = (pixel >> 8) & 255;
                         int b = pixel & 255;
                         int gray = (r + g + b) / 3;
-
                         sumR += r;
                         sumG += g;
                         sumB += b;
@@ -352,18 +282,14 @@ public final class ChessAccessibilityServiceV2 extends AccessibilityService {
                     }
                 }
 
-                double meanR = sumR / (double) Math.max(1, count);
-                double meanG = sumG / (double) Math.max(1, count);
-                double meanB = sumB / (double) Math.max(1, count);
-                double meanGray = sumGray / (double) Math.max(1, count);
-                double variance =
-                        sumGray2 / (double) Math.max(1, count)
-                                - meanGray * meanGray;
+                double divisor = Math.max(1, count);
+                double meanR = sumR / divisor;
+                double meanG = sumG / divisor;
+                double meanB = sumB / divisor;
+                double meanGray = sumGray / divisor;
+                double variance = sumGray2 / divisor - meanGray * meanGray;
 
-                if (json.length() > 1) {
-                    json.append(',');
-                }
-
+                if (json.length() > 1) json.append(',');
                 json.append(round(meanR)).append(',')
                         .append(round(meanG)).append(',')
                         .append(round(meanB)).append(',')
@@ -379,29 +305,10 @@ public final class ChessAccessibilityServiceV2 extends AccessibilityService {
         return String.format(java.util.Locale.US, "%.2f", value);
     }
 
-    private void applyResponse(
-            String response,
-            int x,
-            int y,
-            int size,
-            String orientation
-    ) {
+    private void applyResponse(String response, int x, int y, int size, String orientation) {
         try {
             JSONObject root = new JSONObject(response);
-
             String fen = root.optString("fen", "");
-            int nativeDepth = MainActivity.pref(this, MainActivity.DEPTH, 12);
-            String nativeBestMove = "";
-            if (nativeEngine != null && !fen.isEmpty()) {
-                try {
-                    if (nativeEngine.setPosition(fen)
-                            && nativeEngine.analyze(nativeDepth, 0, 1, 128, 1)) {
-                        nativeBestMove = nativeEngine.getBestMove();
-                    }
-                } catch (Exception ignored) {
-                }
-            }
-
             JSONArray lines = root.optJSONArray("lines");
             List<OverlayViewV2.Arrow> next = new ArrayList<>();
 
@@ -413,111 +320,74 @@ public final class ChessAccessibilityServiceV2 extends AccessibilityService {
                     0xFFE05A5A
             };
 
+            String backendBestMove = root.optString("bestmove_uci", "");
             if (lines != null) {
                 for (int i = 0; i < Math.min(10, lines.length()); i++) {
                     JSONObject line = lines.optJSONObject(i);
-                    if (line == null) {
-                        continue;
-                    }
-
+                    if (line == null) continue;
                     String move = line.optString("bestmove_uci", "");
-                    if (i == 0 && isValidUciMove(nativeBestMove)) {
-                        move = nativeBestMove;
-                    }
-                    if (!isValidUciMove(move)) {
-                        continue;
-                    }
-
-                    next.add(
-                            new OverlayViewV2.Arrow(
-                                    move.substring(0, 2),
-                                    move.substring(2, 4),
-                                    colors[Math.min(i, colors.length - 1)],
-                                    Math.max(5, size / 75f)
-                            )
-                    );
-
-                    if (next.size() >= 5) {
-                        break;
-                    }
+                    if (!isValidUciMove(move)) continue;
+                    if (i == 0) backendBestMove = move;
+                    next.add(new OverlayViewV2.Arrow(
+                            move.substring(0, 2),
+                            move.substring(2, 4),
+                            colors[Math.min(i, colors.length - 1)],
+                            Math.max(5, size / 75f)
+                    ));
+                    if (next.size() >= 5) break;
                 }
             }
 
-            Integer evalCp = root.has("score_cp_white")
-                    && !root.isNull("score_cp_white")
-                    ? root.optInt("score_cp_white")
-                    : null;
+            String best = isValidUciMove(backendBestMove) ? backendBestMove : "";
+            if (!isValidUciMove(best) && nativeEngine != null && !fen.isEmpty()) {
+                try {
+                    int nativeDepth = MainActivity.pref(this, MainActivity.DEPTH, 12);
+                    if (nativeEngine.setPosition(fen)
+                            && nativeEngine.analyze(nativeDepth, 0, 1, 128, 1)) {
+                        String fallback = nativeEngine.getBestMove();
+                        if (isValidUciMove(fallback)) {
+                            best = fallback;
+                            next.add(0, new OverlayViewV2.Arrow(
+                                    fallback.substring(0, 2),
+                                    fallback.substring(2, 4),
+                                    0xFF82C75F,
+                                    Math.max(5, size / 75f)
+                            ));
+                        }
+                    }
+                } catch (Exception ignored) {
+                }
+            }
 
-            Integer evalMate = root.has("mate_white")
-                    && !root.isNull("mate_white")
-                    ? root.optInt("mate_white")
-                    : null;
+            Integer evalCp = root.has("score_cp_white") && !root.isNull("score_cp_white")
+                    ? root.optInt("score_cp_white") : null;
+            Integer evalMate = root.has("mate_white") && !root.isNull("mate_white")
+                    ? root.optInt("mate_white") : null;
 
             double accuracy = -1;
             String classification = "";
             String coach = "";
-
             JSONObject moveAnalysis = root.optJSONObject("move_analysis");
-
             if (moveAnalysis != null) {
-                if (moveAnalysis.has("accuracy")
-                        && !moveAnalysis.isNull("accuracy")) {
+                if (moveAnalysis.has("accuracy") && !moveAnalysis.isNull("accuracy")) {
                     accuracy = moveAnalysis.optDouble("accuracy", -1);
                 }
-
-                classification = moveAnalysis.optString(
-                        "classification",
-                        ""
-                );
+                classification = moveAnalysis.optString("classification", "");
                 coach = moveAnalysis.optString("coach", "");
             }
 
-            boolean overlayEnabled = MainActivity.pref(
-                    this,
-                    MainActivity.OVERLAY,
-                    true
-            );
-
-            boolean showEval = MainActivity.pref(
-                    this,
-                    MainActivity.SHOW_EVAL,
-                    true
-            );
-
-            boolean showClassification = MainActivity.pref(
-                    this,
-                    MainActivity.MOVE_CLASSIFICATION,
-                    true
-            );
-
-            boolean showCoach = MainActivity.pref(
-                    this,
-                    MainActivity.COACH,
-                    true
-            );
-
+            boolean overlayEnabled = MainActivity.pref(this, MainActivity.OVERLAY, true);
+            boolean showEval = MainActivity.pref(this, MainActivity.SHOW_EVAL, true);
+            boolean showClassification = MainActivity.pref(this, MainActivity.MOVE_CLASSIFICATION, true);
+            boolean showCoach = MainActivity.pref(this, MainActivity.COACH, true);
             boolean changed = root.optBoolean("changed", false);
             boolean gameOver = root.optBoolean("game_over", false);
             String side = root.optString("side", "");
-            String best = isValidUciMove(nativeBestMove)
-                    ? nativeBestMove
-                    : root.optString("bestmove_uci", "");
             String detectedMove = root.optString("move_uci", "");
-            boolean voiceCoach = MainActivity.pref(
-                    this,
-                    MainActivity.VOICE_COACH,
-                    false
-            );
+            boolean voiceCoach = MainActivity.pref(this, MainActivity.VOICE_COACH, false);
+            String coachKey = root.optString("previous_fen", "") + ":" + detectedMove + ":" + classification;
 
-            String coachKey = root.optString("previous_fen", "")
-                    + ":" + detectedMove + ":" + classification;
-
-            if (
-                    changed
-                            && voiceCoach
-                            && !coach.isEmpty()
-                            && !coachKey.equals(lastCoachKey)
-            ) {
+            if (changed && voiceCoach && !coach.isEmpty() && !coachKey.equals(lastCoachKey)) {
                 lastCoachKey = coachKey;
                 speakCoach(coach);
             }
@@ -529,15 +399,8 @@ public final class ChessAccessibilityServiceV2 extends AccessibilityService {
             final String overlayCoach = coach;
 
             handler.post(() -> {
-                if (overlay != null) {
-                    overlay.setHidden(
-                            !overlayEnabled
-                                    || !MainActivity.pref(
-                                    this,
-                                    MainActivity.ANALYZER_RUNNING,
-                                    false
-                            )
-                    );
+                if (overlay != null && MainActivity.pref(this, MainActivity.ANALYZER_RUNNING, false)) {
+                    overlay.setHidden(!overlayEnabled);
                     overlay.setBoard(x, y, size, orientation);
                     overlay.setArrows(next);
                     overlay.setAnalysis(
@@ -553,42 +416,15 @@ public final class ChessAccessibilityServiceV2 extends AccessibilityService {
                 }
             });
 
-            String userSide = MainActivity.pref(
-                    this,
-                    MainActivity.USER_SIDE,
-                    "white"
-            );
-
-            boolean autoMove = MainActivity.pref(
-                    this,
-                    MainActivity.AUTO_MOVE,
-                    false
-            );
-
-            boolean correctTurn =
-                    side.equalsIgnoreCase(userSide)
-                            && !gameOver;
-
-            // Promotion moves need an explicit promotion-piece interaction
-            // and are therefore intentionally excluded from auto input here.
+            String userSide = MainActivity.pref(this, MainActivity.USER_SIDE, "white");
+            boolean autoMove = MainActivity.pref(this, MainActivity.AUTO_MOVE, false);
+            boolean correctTurn = side.equalsIgnoreCase(userSide) && !gameOver;
             boolean normalMove = best.length() == 4;
             String autoMoveKey = fen + ":" + best;
 
-            if (
-                    autoMove
-                            && changed
-                            && correctTurn
-                            && normalMove
-                            && !autoMoveKey.equals(lastAutoMoveKey)
-            ) {
+            if (autoMove && changed && correctTurn && normalMove && !autoMoveKey.equals(lastAutoMoveKey)) {
                 lastAutoMoveKey = autoMoveKey;
-                dispatchChessMove(
-                        best,
-                        x,
-                        y,
-                        size,
-                        orientation
-                );
+                dispatchChessMove(best, x, y, size, orientation);
             }
         } catch (Exception ignored) {
         }
@@ -606,61 +442,35 @@ public final class ChessAccessibilityServiceV2 extends AccessibilityService {
                  FileOutputStream output = new FileOutputStream(network)) {
                 byte[] buffer = new byte[8192];
                 int count;
-                while ((count = input.read(buffer)) != -1) {
-                    output.write(buffer, 0, count);
-                }
+                while ((count = input.read(buffer)) != -1) output.write(buffer, 0, count);
             }
         }
-
         return directory.getAbsolutePath();
     }
 
     private boolean isValidUciMove(String move) {
-        if (move == null || (move.length() != 4 && move.length() != 5)) {
-            return false;
-        }
-
+        if (move == null || (move.length() != 4 && move.length() != 5)) return false;
         return isValidSquare(move.substring(0, 2))
                 && isValidSquare(move.substring(2, 4))
                 && !move.substring(0, 2).equals(move.substring(2, 4));
     }
 
     private boolean isValidSquare(String square) {
-        if (square == null || square.length() != 2) {
-            return false;
-        }
-
+        if (square == null || square.length() != 2) return false;
         char file = square.charAt(0);
         char rank = square.charAt(1);
-
-        return file >= 'a' && file <= 'h'
-                && rank >= '1' && rank <= '8';
+        return file >= 'a' && file <= 'h' && rank >= '1' && rank <= '8';
     }
 
     private void speakCoach(String message) {
-        if (textToSpeech == null || message == null || message.isEmpty()) {
-            return;
-        }
-
-        textToSpeech.speak(
-                message,
-                TextToSpeech.QUEUE_FLUSH,
-                null,
-                "cheeezie-coach"
-        );
+        if (textToSpeech == null || message == null || message.isEmpty()) return;
+        textToSpeech.speak(message, TextToSpeech.QUEUE_FLUSH, null, "cheeezie-coach");
     }
 
-    private void dispatchChessMove(
-            String move,
-            int x,
-            int y,
-            int size,
-            String orientation
-    ) {
+    private void dispatchChessMove(String move, int x, int y, int size, String orientation) {
         String from = move.substring(0, 2);
         String to = move.substring(2, 4);
         float cell = size / 8f;
-
         Point a = center(from, x, y, cell, orientation);
         Point b = center(to, x, y, cell, orientation);
 
@@ -669,31 +479,18 @@ public final class ChessAccessibilityServiceV2 extends AccessibilityService {
         path.lineTo(b.x, b.y);
 
         GestureDescription.StrokeDescription stroke =
-                new GestureDescription.StrokeDescription(
-                        path,
-                        0,
-                        280
-                );
+                new GestureDescription.StrokeDescription(path, 0, 280);
 
         dispatchGesture(
-                new GestureDescription.Builder()
-                        .addStroke(stroke)
-                        .build(),
+                new GestureDescription.Builder().addStroke(stroke).build(),
                 null,
                 null
         );
     }
 
-    private Point center(
-            String square,
-            int x,
-            int y,
-            float cell,
-            String orientation
-    ) {
+    private Point center(String square, int x, int y, float cell, String orientation) {
         int file = square.charAt(0) - 'a';
         int rank = square.charAt(1) - '1';
-
         int screenFile;
         int screenRank;
 
@@ -714,7 +511,6 @@ public final class ChessAccessibilityServiceV2 extends AccessibilityService {
     private static final class Point {
         final float x;
         final float y;
-
         Point(float x, float y) {
             this.x = x;
             this.y = y;
@@ -726,36 +522,35 @@ public final class ChessAccessibilityServiceV2 extends AccessibilityService {
     }
 
     private String escape(String value) {
-        return value
-                .replace("\\", "\\\\")
-                .replace("\"", "\\\"");
+        return value.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
     @Override
     public void onAccessibilityEvent(AccessibilityEvent event) {
-        // App-specific window detection will be added through profiles.
     }
 
     @Override
     public void onInterrupt() {
         handler.removeCallbacks(captureLoop);
-
+        requestBusy = false;
         if (windowManager != null && overlay != null) {
             try {
                 windowManager.removeView(overlay);
             } catch (Exception ignored) {
             }
         }
-
         overlay = null;
     }
 
     @Override
     public void onDestroy() {
+        destroyed = true;
         onInterrupt();
+        analysisExecutor.shutdownNow();
 
         if (nativeEngine != null) {
             try {
+                nativeEngine.stop();
                 nativeEngine.close();
             } catch (Exception ignored) {
             }
