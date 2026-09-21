@@ -65,7 +65,7 @@ jobs:
           )
           Get-ChildItem -Filter *.nnue | ForEach-Object {
             $args += "--add-data"
-            $args += "$($_.Name;.)"
+            $args += "$($_.Name);."
           }
           $args += "windows/cheezie_windows.py"
           pyinstaller @args
