@@ -141,6 +141,26 @@ chessengine-android/
 └── README.md
 ```
 
+## Windows
+
+A Windows desktop client is included under windows/. It reuses the existing Python chess and Stockfish engine layer instead of maintaining a second chess implementation.
+
+Current Windows features:
+
+- Tkinter desktop board
+- FEN loading and reset
+- Legal interactive board moves
+- Configurable depth and MultiPV
+- Evaluation and verified engine lines
+- Local Windows Stockfish executable support
+
+Install the existing Python dependency and launch it with:
+
+    py -m pip install -r requirements.txt
+    py windows\\cheezie_windows.py --engine C:\\path\\to\\stockfish.exe
+
+The Windows client is intentionally isolated from the Android capture, accessibility, overlay, and automation implementation. Screen capture, automatic board geometry detection, transparent overlays, and Windows input automation remain separate parity work so they can be added without destabilizing Android.
+
 ## Installation
 
 Clone the repository in Termux:
