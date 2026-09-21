@@ -1,6 +1,6 @@
 package com.vhx.chessengine;
 
-public final class NativeChessEngine {
+public final class NativeChessEngine implements AutoCloseable {
     static { System.loadLibrary("cheeziengine"); }
     private long handle;
 
@@ -9,23 +9,61 @@ public final class NativeChessEngine {
         if (handle == 0) throw new IllegalStateException("Failed to create native chess engine");
     }
 
-    public synchronized boolean setPosition(String fen) { return nativeSetPosition(handle, fen); }
+    public synchronized boolean setPosition(String fen) {
+        ensureOpen();
+        return nativeSetPosition(handle, fen);
+    }
+
     public synchronized boolean analyze(int depth, int movetimeMs, int threads, int hashMb, int multiPv) {
+        ensureOpen();
         return nativeAnalyze(handle, depth, movetimeMs, threads, hashMb, multiPv);
     }
-    public synchronized void stop() { nativeStop(handle); }
-    public synchronized String getBestMove() { return nativeGetBestMove(handle); }
-    public synchronized String getPrincipalVariation() { return nativeGetPrincipalVariation(handle); }
-    public synchronized int getScoreCp() { return nativeGetScoreCp(handle); }
-    public synchronized int getMate() { return nativeGetMate(handle); }
-    public synchronized int getDepth() { return nativeGetDepth(handle); }
+
+    public synchronized void stop() {
+        if (handle != 0) nativeStop(handle);
+    }
+
+    public synchronized String getBestMove() {
+        ensureOpen();
+        return nativeGetBestMove(handle);
+    }
+
+    public synchronized String getPrincipalVariation() {
+        ensureOpen();
+        return nativeGetPrincipalVariation(handle);
+    }
+
+    public synchronized int getScoreCp() {
+        ensureOpen();
+        return nativeGetScoreCp(handle);
+    }
+
+    public synchronized int getMate() {
+        ensureOpen();
+        return nativeGetMate(handle);
+    }
+
+    public synchronized int getDepth() {
+        ensureOpen();
+        return nativeGetDepth(handle);
+    }
+
+    @Override
     public synchronized void close() {
-        if (handle != 0) { nativeDestroy(handle); handle = 0; }
+        if (handle != 0) {
+            nativeDestroy(handle);
+            handle = 0;
+        }
     }
-    @Override protected void finalize() throws Throwable {
-        close();
-        super.finalize();
+
+    public synchronized boolean isClosed() {
+        return handle == 0;
     }
+
+    private void ensureOpen() {
+        if (handle == 0) throw new IllegalStateException("Native chess engine is closed");
+    }
+
     private static native long nativeCreate(String engineDirectory);
     private static native void nativeDestroy(long handle);
     private static native boolean nativeSetPosition(long handle, String fen);
