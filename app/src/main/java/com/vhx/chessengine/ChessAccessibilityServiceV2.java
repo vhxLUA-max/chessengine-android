@@ -29,6 +29,7 @@ public final class ChessAccessibilityServiceV2 extends AccessibilityService {
 
     private WindowManager windowManager;
     private OverlayViewV2 overlay;
+    private NativeChessEngine nativeEngine;
 
     private String lastAutoMove = null;
     private TextToSpeech textToSpeech;
