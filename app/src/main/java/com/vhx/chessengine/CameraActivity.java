@@ -24,8 +24,6 @@ import android.view.View;
 import android.widget.FrameLayout;
 import android.widget.TextView;
 
-import androidx.annotation.NonNull;
-
 import java.util.Collections;
 
 public class CameraActivity extends Activity {
@@ -80,7 +78,7 @@ public class CameraActivity extends Activity {
         preview.setSurfaceTextureListener(new TextureView.SurfaceTextureListener() {
             @Override
             public void onSurfaceTextureAvailable(
-                    @NonNull SurfaceTexture surface,
+                    SurfaceTexture surface,
                     int width,
                     int height
             ) {
@@ -134,8 +132,8 @@ public class CameraActivity extends Activity {
     @Override
     public void onRequestPermissionsResult(
             int requestCode,
-            @NonNull String[] permissions,
-            @NonNull int[] results
+            String[] permissions,
+            int[] results
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, results);
 
@@ -210,7 +208,7 @@ public class CameraActivity extends Activity {
                     cameraId,
                     new CameraDevice.StateCallback() {
                         @Override
-                        public void onOpened(@NonNull CameraDevice device) {
+                        public void onOpened(CameraDevice device) {
                             camera = device;
                             createPreviewSession();
                         }
@@ -260,7 +258,7 @@ public class CameraActivity extends Activity {
                     new CameraCaptureSession.StateCallback() {
                         @Override
                         public void onConfigured(
-                                @NonNull CameraCaptureSession configured
+                                CameraCaptureSession configured
                         ) {
                             session = configured;
 
