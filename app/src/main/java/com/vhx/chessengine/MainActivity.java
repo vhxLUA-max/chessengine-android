@@ -1,14 +1,17 @@
 package com.vhx.chessengine;
 
+import android.accessibilityservice.AccessibilityServiceInfo;
 import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Color;
+import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.view.Gravity;
+import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
@@ -16,6 +19,9 @@ import android.widget.ScrollView;
 import android.widget.SeekBar;
 import android.widget.Switch;
 import android.widget.TextView;
+import android.view.accessibility.AccessibilityManager;
+
+import java.util.List;
 
 public class MainActivity extends Activity {
     public static final String PREFS = "cheeezie";
@@ -35,6 +41,15 @@ public class MainActivity extends Activity {
     public static final String MOVE_CLASSIFICATION = "move_classification";
     public static final String COACH = "coach";
     public static final String VOICE_COACH = "voice_coach";
+    public static final String ANALYZER_RUNNING = "analyzer_running";
+
+    private static final int BG = Color.rgb(8, 11, 10);
+    private static final int CARD = Color.rgb(18, 23, 20);
+    private static final int CARD_ALT = Color.rgb(22, 28, 24);
+    private static final int TEXT = Color.WHITE;
+    private static final int MUTED = Color.rgb(153, 164, 156);
+    private static final int ACCENT = Color.rgb(130, 199, 95);
+    private static final int BORDER = Color.rgb(45, 57, 49);
 
     private EditText apiUrl;
     private EditText token;
@@ -55,6 +70,10 @@ public class MainActivity extends Activity {
     private Switch coach;
     private Switch voiceCoach;
 
+    private Button analyzerButton;
+    private TextView analyzerState;
+    private TextView serviceState;
+
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
@@ -62,31 +81,51 @@ public class MainActivity extends Activity {
         SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
 
         ScrollView scroll = new ScrollView(this);
+        scroll.setBackgroundColor(BG);
+        scroll.setFillViewport(true);
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(28, 28, 28, 28);
-        root.setBackgroundColor(Color.rgb(9, 12, 10));
+        root.setPadding(dp(18), dp(18), dp(18), dp(28));
+        root.setBackgroundColor(BG);
 
-        TextView title = text("CHEEZIE ANDROID", 22, Color.WHITE);
+        TextView title = text("CHEEZIE", 28, TEXT);
+        title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         root.addView(title);
 
-        TextView subtitle = text(
-                "Native chess-app companion • Termux engine",
-                12,
-                Color.rgb(165, 175, 167)
-        );
-        subtitle.setPadding(0, 5, 0, 22);
+        TextView subtitle = text("Android chess analyzer", 13, MUTED);
+        subtitle.setPadding(0, 0, 0, dp(18));
         root.addView(subtitle);
 
-        TextView serviceState = text(
-                "Accessibility service is required for screen capture, overlay arrows, and gesture input.",
-                12,
-                Color.rgb(130, 140, 132)
-        );
-        root.addView(serviceState);
+        LinearLayout analyzerCard = card();
+        TextView analyzerTitle = text("ANALYZER", 12, ACCENT);
+        analyzerTitle.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        analyzerCard.addView(analyzerTitle);
 
-        root.addView(text("CONNECTION", 12, Color.rgb(120, 205, 145)));
+        analyzerState = text("", 15, TEXT);
+        analyzerState.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        analyzerState.setPadding(0, dp(10), 0, dp(2));
+        analyzerCard.addView(analyzerState);
+
+        TextView analyzerHint = text(
+                "Start analysis only after the accessibility service is enabled.",
+                11,
+                MUTED
+        );
+        analyzerHint.setPadding(0, 0, 0, dp(10));
+        analyzerCard.addView(analyzerHint);
+
+        analyzerButton = primaryButton("");
+        analyzerButton.setOnClickListener(v -> toggleAnalyzer());
+        analyzerCard.addView(analyzerButton);
+
+        serviceState = text("", 11, MUTED);
+        serviceState.setPadding(0, dp(9), 0, 0);
+        analyzerCard.addView(serviceState);
+
+        root.addView(analyzerCard);
+
+        root.addView(section("CONNECTION"));
 
         apiUrl = field(
                 "Termux API URL",
@@ -96,11 +135,10 @@ public class MainActivity extends Activity {
                 "Bearer token (optional)",
                 p.getString(TOKEN, "")
         );
-
         root.addView(apiUrl);
         root.addView(token);
 
-        root.addView(text("BOARD", 12, Color.rgb(120, 205, 145)));
+        root.addView(section("BOARD"));
 
         boardX = field("Board X", String.valueOf(p.getInt(BOARD_X, 0)));
         boardY = field("Board Y", String.valueOf(p.getInt(BOARD_Y, 0)));
@@ -125,27 +163,24 @@ public class MainActivity extends Activity {
         root.addView(userSide);
         root.addView(initialFen);
 
-        root.addView(text("ENGINE", 12, Color.rgb(120, 205, 145)));
+        root.addView(section("ENGINE"));
 
-        LinearLayout depthRow = new LinearLayout(this);
-        depthRow.setOrientation(LinearLayout.HORIZONTAL);
-        depthRow.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout depthRow = row();
+        TextView depthLabel = text("Depth", 12, TEXT);
+        depthLabel.setLayoutParams(new LinearLayout.LayoutParams(dp(48), -2));
 
-        TextView depthLabel = text("Depth", 12, Color.WHITE);
-        depthLabel.setPadding(0, 6, 8, 6);
-
-        depthValue = text(String.valueOf(clamp(p.getInt(DEPTH, 12), 1, 30)), 12, Color.WHITE);
+        depthValue = text(
+                String.valueOf(clamp(p.getInt(DEPTH, 12), 1, 30)),
+                12,
+                TEXT
+        );
         depthValue.setGravity(Gravity.CENTER);
+        depthValue.setLayoutParams(new LinearLayout.LayoutParams(dp(34), -2));
 
         depth = new SeekBar(this);
         depth.setMax(29);
         depth.setProgress(clamp(p.getInt(DEPTH, 12), 1, 30) - 1);
-        depth.setLayoutParams(new LinearLayout.LayoutParams(
-                0,
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                1f
-        ));
-
+        depth.setLayoutParams(new LinearLayout.LayoutParams(0, -2, 1f));
         depth.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override
             public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
@@ -172,36 +207,21 @@ public class MainActivity extends Activity {
         );
         root.addView(multipv);
 
-        root.addView(text("OVERLAY", 12, Color.rgb(120, 205, 145)));
+        root.addView(section("OVERLAY"));
 
-        overlay = toggle(
-                "Overlay",
-                p.getBoolean(OVERLAY, true)
-        );
+        overlay = toggle("Show overlay", p.getBoolean(OVERLAY, true));
         root.addView(overlay);
 
-        root.addView(text("FEATURES", 12, Color.rgb(120, 205, 145)));
+        root.addView(section("FEATURES"));
 
-        autoMove = toggle(
-                "Auto move",
-                p.getBoolean(AUTO_MOVE, false)
-        );
-        showEval = toggle(
-                "Evaluation bar",
-                p.getBoolean(SHOW_EVAL, true)
-        );
+        autoMove = toggle("Auto move", p.getBoolean(AUTO_MOVE, false));
+        showEval = toggle("Evaluation", p.getBoolean(SHOW_EVAL, true));
         moveClassification = toggle(
                 "Move classification + accuracy",
                 p.getBoolean(MOVE_CLASSIFICATION, true)
         );
-        coach = toggle(
-                "Coach message",
-                p.getBoolean(COACH, true)
-        );
-        voiceCoach = toggle(
-                "Voice coach",
-                p.getBoolean(VOICE_COACH, false)
-        );
+        coach = toggle("Coach message", p.getBoolean(COACH, true));
+        voiceCoach = toggle("Voice coach", p.getBoolean(VOICE_COACH, false));
 
         root.addView(autoMove);
         root.addView(showEval);
@@ -209,21 +229,24 @@ public class MainActivity extends Activity {
         root.addView(coach);
         root.addView(voiceCoach);
 
-        Button save = button("SAVE SETTINGS");
-        save.setOnClickListener(v -> saveSettings());
+        Button save = primaryButton("SAVE SETTINGS");
+        save.setOnClickListener(v -> {
+            saveSettings();
+            updateStatus();
+        });
         root.addView(save);
 
-        Button accessibility = button("ENABLE ACCESSIBILITY SERVICE");
+        Button accessibility = secondaryButton("ACCESSIBILITY SETTINGS");
         accessibility.setOnClickListener(v ->
                 startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         );
         root.addView(accessibility);
 
-        Button test = button("TEST TERMUX ENGINE");
+        Button test = secondaryButton("TEST TERMUX ENGINE");
         test.setOnClickListener(v -> testEngine());
         root.addView(test);
 
-        Button openTermux = button("OPEN TERMUX");
+        Button openTermux = secondaryButton("OPEN TERMUX");
         openTermux.setOnClickListener(v -> {
             Intent i = new Intent(Intent.ACTION_VIEW, Uri.parse("https://termux.com/"));
             startActivity(i);
@@ -232,6 +255,90 @@ public class MainActivity extends Activity {
 
         scroll.addView(root);
         setContentView(scroll);
+        updateStatus();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (analyzerButton != null) {
+            updateStatus();
+        }
+    }
+
+    private void toggleAnalyzer() {
+        saveSettings();
+
+        if (!isAccessibilityServiceEnabled()) {
+            startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
+            return;
+        }
+
+        boolean running = !pref(this, ANALYZER_RUNNING, false);
+        getSharedPreferences(PREFS, MODE_PRIVATE)
+                .edit()
+                .putBoolean(ANALYZER_RUNNING, running)
+                .apply();
+        updateStatus();
+    }
+
+    private boolean isAccessibilityServiceEnabled() {
+        AccessibilityManager manager =
+                (AccessibilityManager) getSystemService(ACCESSIBILITY_SERVICE);
+
+        if (manager == null) {
+            return false;
+        }
+
+        List<AccessibilityServiceInfo> services =
+                manager.getEnabledAccessibilityServiceList(
+                        AccessibilityServiceInfo.FEEDBACK_ALL_MASK
+                );
+
+        String target = getPackageName() + "/" + ChessAccessibilityServiceV2.class.getName();
+
+        for (AccessibilityServiceInfo info : services) {
+            if (info.getResolveInfo() != null
+                    && info.getResolveInfo().serviceInfo != null) {
+                String component =
+                        info.getResolveInfo().serviceInfo.packageName
+                                + "/"
+                                + info.getResolveInfo().serviceInfo.name;
+                if (target.equals(component)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private void updateStatus() {
+        boolean running = pref(this, ANALYZER_RUNNING, false);
+        boolean serviceEnabled = isAccessibilityServiceEnabled();
+
+        analyzerState.setText(running ? "Analyzer running" : "Analyzer stopped");
+        analyzerState.setTextColor(running ? ACCENT : TEXT);
+        analyzerButton.setText(running ? "STOP ANALYZER" : "START ANALYZER");
+
+        if (serviceEnabled) {
+            serviceState.setText(
+                    running
+                            ? "Accessibility service connected. Overlay pipeline is active."
+                            : "Accessibility service enabled. Ready to analyze."
+            );
+        } else {
+            serviceState.setText(
+                    "Accessibility service is disabled. Enable it to use screen capture and overlay."
+            );
+        }
+    }
+
+    private TextView section(String value) {
+        TextView v = text(value, 11, ACCENT);
+        v.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        v.setPadding(0, dp(22), 0, dp(8));
+        return v;
     }
 
     private TextView text(String value, int size, int color) {
@@ -239,24 +346,48 @@ public class MainActivity extends Activity {
         v.setText(value);
         v.setTextSize(size);
         v.setTextColor(color);
-        v.setPadding(0, 8, 0, 8);
+        v.setPadding(0, dp(6), 0, dp(6));
         return v;
+    }
+
+    private LinearLayout card() {
+        LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setPadding(dp(16), dp(15), dp(16), dp(15));
+        layout.setBackground(round(CARD, BORDER, 16));
+
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        lp.bottomMargin = dp(4);
+        layout.setLayoutParams(lp);
+        return layout;
+    }
+
+    private LinearLayout row() {
+        LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.HORIZONTAL);
+        layout.setGravity(Gravity.CENTER_VERTICAL);
+        return layout;
     }
 
     private EditText field(String hint, String value) {
         EditText e = new EditText(this);
         e.setHint(hint);
         e.setText(value);
-        e.setTextColor(Color.WHITE);
-        e.setHintTextColor(Color.rgb(105, 115, 108));
+        e.setTextColor(TEXT);
+        e.setHintTextColor(Color.rgb(105, 116, 108));
         e.setSingleLine(true);
-        e.setPadding(12, 6, 12, 6);
+        e.setTextSize(12);
+        e.setPadding(dp(12), 0, dp(12), 0);
+        e.setBackground(round(CARD_ALT, BORDER, 12));
 
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
+                dp(46)
         );
-        lp.bottomMargin = 8;
+        lp.bottomMargin = dp(8);
         e.setLayoutParams(lp);
         return e;
     }
@@ -264,10 +395,10 @@ public class MainActivity extends Activity {
     private Switch toggle(String label, boolean checked) {
         Switch s = new Switch(this);
         s.setText(label);
-        s.setTextColor(Color.WHITE);
+        s.setTextColor(TEXT);
         s.setTextSize(12);
         s.setChecked(checked);
-        s.setPadding(0, 6, 0, 6);
+        s.setPadding(dp(2), dp(5), dp(2), dp(5));
         s.setLayoutParams(new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
@@ -275,21 +406,45 @@ public class MainActivity extends Activity {
         return s;
     }
 
-    private Button button(String label) {
+    private Button primaryButton(String label) {
+        Button b = baseButton(label);
+        b.setBackground(round(ACCENT, ACCENT, 13));
+        b.setTextColor(Color.rgb(8, 12, 9));
+        return b;
+    }
+
+    private Button secondaryButton(String label) {
+        Button b = baseButton(label);
+        b.setBackground(round(CARD_ALT, BORDER, 13));
+        b.setTextColor(TEXT);
+        return b;
+    }
+
+    private Button baseButton(String label) {
         Button b = new Button(this);
         b.setText(label);
         b.setTextSize(11);
-        b.setTextColor(Color.WHITE);
+        b.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         b.setAllCaps(false);
         b.setGravity(Gravity.CENTER);
+        b.setMinHeight(0);
+        b.setMinimumHeight(0);
 
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
+                dp(48)
         );
-        lp.topMargin = 8;
+        lp.topMargin = dp(9);
         b.setLayoutParams(lp);
         return b;
+    }
+
+    private GradientDrawable round(int fill, int stroke, int radius) {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(fill);
+        drawable.setCornerRadius(dp(radius));
+        drawable.setStroke(dp(1), stroke);
+        return drawable;
     }
 
     private void saveSettings() {
@@ -300,18 +455,9 @@ public class MainActivity extends Activity {
         e.putInt(BOARD_X, number(boardX, 0));
         e.putInt(BOARD_Y, number(boardY, 0));
         e.putInt(BOARD_SIZE, number(boardSize, 0));
-        e.putString(
-                ORIENTATION,
-                orientation.getText().toString().trim().toLowerCase()
-        );
-        e.putString(
-                USER_SIDE,
-                userSide.getText().toString().trim().toLowerCase()
-        );
-        e.putString(
-                INITIAL_FEN,
-                initialFen.getText().toString().trim()
-        );
+        e.putString(ORIENTATION, orientation.getText().toString().trim().toLowerCase());
+        e.putString(USER_SIDE, userSide.getText().toString().trim().toLowerCase());
+        e.putString(INITIAL_FEN, initialFen.getText().toString().trim());
         e.putInt(DEPTH, clamp(depth.getProgress() + 1, 1, 30));
         e.putBoolean(OVERLAY, overlay.isChecked());
         e.putInt(MULTIPV, clamp(number(multipv, 5), 1, 10));
@@ -334,6 +480,10 @@ public class MainActivity extends Activity {
 
     private int clamp(int value, int min, int max) {
         return Math.max(min, Math.min(max, value));
+    }
+
+    private int dp(int value) {
+        return Math.round(value * getResources().getDisplayMetrics().density);
     }
 
     private void testEngine() {
