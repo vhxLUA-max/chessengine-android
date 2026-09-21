@@ -39,6 +39,13 @@ public final class ChessAccessibilityServiceV2 extends AccessibilityService {
     private String lastCoachKey = null;
     private String lastAutoMoveKey = null;
     private boolean captureBusy = false;
+
+    private void setCaptureStatus(String value) {
+        getSharedPreferences(MainActivity.PREFS, MODE_PRIVATE)
+                .edit()
+                .putString(MainActivity.CAPTURE_STATUS, value)
+                .apply();
+    }
     private volatile boolean requestBusy = false;
 
     private void updateOverlayVisibility() {
@@ -101,11 +108,13 @@ public final class ChessAccessibilityServiceV2 extends AccessibilityService {
                 }
         );
 
+        setCaptureStatus("Accessibility service connected; waiting for analyzer.");
         handler.post(captureLoop);
     }
 
     private void capture() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R || captureBusy) {
+            setCaptureStatus("Android 11+ screenshot API required.");
             return;
         }
 
@@ -140,6 +149,7 @@ public final class ChessAccessibilityServiceV2 extends AccessibilityService {
                                     return;
                                 }
 
+                                setCaptureStatus("Screenshot captured; detecting board.");
                                 sendFrame(copy);
                                 copy.recycle();
                             } finally {
@@ -154,11 +164,22 @@ public final class ChessAccessibilityServiceV2 extends AccessibilityService {
 
                         @Override
                         public void onFailure(int errorCode) {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE
+                                    && errorCode == AccessibilityService.ERROR_TAKE_SCREENSHOT_SECURE_WINDOW) {
+                                setCaptureStatus("Chess.com blocked screen capture for this screen.");
+                            } else if (errorCode == AccessibilityService.ERROR_TAKE_SCREENSHOT_NO_ACCESSIBILITY_ACCESS) {
+                                setCaptureStatus("Accessibility screenshot access is unavailable.");
+                            } else if (errorCode == AccessibilityService.ERROR_TAKE_SCREENSHOT_INTERVAL_TIME_SHORT) {
+                                setCaptureStatus("Screenshot rate limited; retrying.");
+                            } else {
+                                setCaptureStatus("Screenshot failed (" + errorCode + ").");
+                            }
                             captureBusy = false;
                         }
                     }
             );
         } catch (Exception ignored) {
+            setCaptureStatus("Screenshot request failed.");
             captureBusy = false;
         }
     }
@@ -198,9 +219,21 @@ public final class ChessAccessibilityServiceV2 extends AccessibilityService {
                 ""
         );
 
-        int x = MainActivity.pref(this, MainActivity.BOARD_X, 0);
-        int y = MainActivity.pref(this, MainActivity.BOARD_Y, 0);
-        int size = MainActivity.pref(this, MainActivity.BOARD_SIZE, 0);
+        long now = android.os.SystemClock.uptimeMillis();
+
+        if (detectedBoard == null || now - lastBoardDetectionMs >= 1000L) {
+            detectedBoard = boardDetector.detect(screen);
+            lastBoardDetectionMs = now;
+        }
+
+        if (detectedBoard == null) {
+            setCaptureStatus("Screenshot OK; chessboard not detected.");
+            return;
+        }
+
+        int x = detectedBoard.x;
+        int y = detectedBoard.y;
+        int size = detectedBoard.size;
 
         String orientation = MainActivity.pref(
                 this,
@@ -208,22 +241,9 @@ public final class ChessAccessibilityServiceV2 extends AccessibilityService {
                 "white"
         );
 
-        if (size <= 0) {
-            long now = android.os.SystemClock.uptimeMillis();
-
-            if (detectedBoard == null || now - lastBoardDetectionMs >= 2500L) {
-                detectedBoard = boardDetector.detect(screen);
-                lastBoardDetectionMs = now;
-            }
-
-            if (detectedBoard == null) {
-                return;
-            }
-
-            x = detectedBoard.x;
-            y = detectedBoard.y;
-            size = detectedBoard.size;
-        }
+        setCaptureStatus(
+                "Chessboard detected at " + x + "," + y + " size " + size + "."
+        );
 
         int safeX = Math.max(0, Math.min(x, screen.getWidth() - 1));
         int safeY = Math.max(0, Math.min(y, screen.getHeight() - 1));
@@ -254,11 +274,7 @@ public final class ChessAccessibilityServiceV2 extends AccessibilityService {
 
         String cells = sampleCells(screen, safeX, safeY, safeSize);
 
-        String initialFen = MainActivity.pref(
-                this,
-                MainActivity.INITIAL_FEN,
-                BoardDefaults.START_FEN
-        );
+        String initialFen = BoardDefaults.START_FEN;
 
         int multipv = MainActivity.pref(this, MainActivity.MULTIPV, 5);
         int depth = MainActivity.pref(this, MainActivity.DEPTH, 12);
