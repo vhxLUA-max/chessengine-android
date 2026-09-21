@@ -20,6 +20,7 @@ android {
         externalNativeBuild {
             cmake {
                 cppFlags += listOf("-std=c++17")
+                arguments += listOf("-DCMAKE_WARN_DEPRECATED=OFF")
             }
         }
     }
