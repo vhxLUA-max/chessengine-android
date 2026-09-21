@@ -6,6 +6,8 @@ import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.PointF;
+import android.graphics.RectF;
+import android.graphics.Typeface;
 import android.view.View;
 
 import java.util.ArrayList;
@@ -27,7 +29,17 @@ public final class OverlayViewV2 extends View {
         }
     }
 
+    private static final int PANEL = 0xD91A201C;
+    private static final int PANEL_STROKE = 0x805A6A60;
+    private static final int WHITE = 0xFFF4F7F4;
+    private static final int MUTED = 0xFFB5C0B8;
+    private static final int GREEN = 0xFF82C75F;
+    private static final int YELLOW = 0xFFE1C34A;
+    private static final int ORANGE = 0xFFE58A3A;
+    private static final int RED = 0xFFE05A5A;
+
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint stroke = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final List<Arrow> arrows = new ArrayList<>();
 
     private int boardX;
@@ -35,7 +47,7 @@ public final class OverlayViewV2 extends View {
     private int boardSize;
     private String orientation = "white";
 
-    private boolean hidden;
+    private boolean hidden = true;
     private boolean showEval = true;
     private boolean showClassification = true;
     private boolean showCoach = true;
@@ -48,6 +60,10 @@ public final class OverlayViewV2 extends View {
 
     public OverlayViewV2(Context context) {
         super(context);
+        paint.setTypeface(Typeface.DEFAULT);
+        stroke.setStyle(Paint.Style.STROKE);
+        stroke.setStrokeCap(Paint.Cap.ROUND);
+        setLayerType(View.LAYER_TYPE_HARDWARE, null);
     }
 
     public synchronized void setBoard(int x, int y, int size, String orientation) {
@@ -108,6 +124,7 @@ public final class OverlayViewV2 extends View {
             return;
         }
 
+        drawBoardFrame(canvas);
         drawArrows(canvas);
 
         if (showEval) {
@@ -124,42 +141,81 @@ public final class OverlayViewV2 extends View {
         }
     }
 
+    private void drawBoardFrame(Canvas canvas) {
+        float inset = Math.max(2f, boardSize / 180f);
+        stroke.setStrokeWidth(Math.max(2f, boardSize / 160f));
+        stroke.setColor(0x705F6C64);
+        canvas.drawRoundRect(
+                new RectF(
+                        boardX - inset,
+                        boardY - inset,
+                        boardX + boardSize + inset,
+                        boardY + boardSize + inset
+                ),
+                Math.max(4f, boardSize / 90f),
+                Math.max(4f, boardSize / 90f),
+                stroke
+        );
+    }
+
     private void drawArrows(Canvas canvas) {
-        for (Arrow arrow : arrows) {
+        for (int i = 0; i < arrows.size(); i++) {
+            Arrow arrow = arrows.get(i);
             PointF a = center(arrow.from);
             PointF b = center(arrow.to);
 
-            paint.setStyle(Paint.Style.STROKE);
-            paint.setStrokeWidth(arrow.width);
-            paint.setStrokeCap(Paint.Cap.ROUND);
-            paint.setColor(arrow.color);
+            float width = Math.max(4f, arrow.width);
+            stroke.setStrokeWidth(width + Math.max(2f, width * .55f));
+            stroke.setColor(0x55000000);
+            canvas.drawLine(a.x, a.y, b.x, b.y, stroke);
 
-            canvas.drawLine(a.x, a.y, b.x, b.y, paint);
-            drawHead(canvas, a, b, arrow.color, arrow.width);
+            stroke.setStrokeWidth(width);
+            stroke.setColor(arrow.color);
+            canvas.drawLine(a.x, a.y, b.x, b.y, stroke);
+
+            drawHead(canvas, a, b, arrow.color, width);
         }
     }
 
     private void drawEvalBar(Canvas canvas) {
-        float barWidth = Math.max(8f, boardSize / 42f);
-        float barLeft = Math.max(1f, boardX - barWidth - 8f);
-        float barRight = barLeft + barWidth;
+        float barWidth = Math.max(9f, boardSize / 40f);
+        float gap = Math.max(6f, boardSize / 70f);
+        float left = Math.max(2f, boardX - barWidth - gap);
         float top = boardY;
+        float right = left + barWidth;
         float bottom = boardY + boardSize;
 
         paint.setStyle(Paint.Style.FILL);
-        paint.setColor(Color.rgb(35, 35, 35));
-        canvas.drawRect(barLeft, top, barRight, bottom, paint);
+        paint.setColor(0xFF101311);
+        canvas.drawRoundRect(
+                new RectF(left, top, right, bottom),
+                barWidth / 2f,
+                barWidth / 2f,
+                paint
+        );
 
         double score = evaluationForBar();
         double normalized = 1.0 / (1.0 + Math.exp(-score / 400.0));
         float whiteHeight = (float) (boardSize * normalized);
 
-        paint.setColor(Color.WHITE);
-        canvas.drawRect(
-                barLeft,
-                bottom - whiteHeight,
-                barRight,
-                bottom,
+        paint.setColor(WHITE);
+        canvas.drawRoundRect(
+                new RectF(
+                        left,
+                        bottom - whiteHeight,
+                        right,
+                        bottom
+                ),
+                barWidth / 2f,
+                barWidth / 2f,
+                paint
+        );
+
+        paint.setColor(0xFF2A302C);
+        canvas.drawCircle(
+                (left + right) / 2f,
+                bottom - boardSize * .5f,
+                Math.max(1.5f, barWidth * .13f),
                 paint
         );
     }
@@ -176,76 +232,117 @@ public final class OverlayViewV2 extends View {
         String value;
 
         if (evalMate != null) {
-            value = "M" + Math.abs(evalMate);
-            if (evalMate < 0) {
-                value = "-" + value;
-            } else {
-                value = "+" + value;
-            }
+            value = (evalMate < 0 ? "-" : "+") + "M" + Math.abs(evalMate);
         } else if (evalCp == null) {
             value = "0.00";
         } else {
-            value = String.format(
-                    Locale.US,
-                    "%+.2f",
-                    evalCp / 100.0
-            );
+            value = String.format(Locale.US, "%+.2f", evalCp / 100.0);
         }
 
+        float size = Math.max(13f, boardSize / 30f);
+        paint.setTypeface(Typeface.DEFAULT_BOLD);
+        paint.setTextSize(size);
+        paint.setColor(WHITE);
         paint.setStyle(Paint.Style.FILL);
-        paint.setTextSize(Math.max(13f, boardSize / 32f));
-        paint.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        paint.setColor(Color.WHITE);
 
-        float x = boardX + 6f;
-        float y = Math.max(18f, boardY - 8f);
+        float width = paint.measureText(value);
+        float x = boardX + 8f;
+        float y = Math.max(size + 5f, boardY - 10f);
 
+        drawPanel(canvas, x - 6f, y - size - 6f, x + width + 6f, y + 6f, 10f);
+        paint.setColor(WHITE);
         canvas.drawText(value, x, y, paint);
     }
 
     private void drawClassification(Canvas canvas) {
-        String text = classification;
-
+        String label = classification.trim();
         if (accuracy >= 0) {
-            text += "  " + String.format(Locale.US, "%.1f%%", accuracy);
+            label += "  " + String.format(Locale.US, "%.1f%%", accuracy);
         }
 
-        paint.setStyle(Paint.Style.FILL);
-        paint.setTextSize(Math.max(12f, boardSize / 38f));
-        paint.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        paint.setColor(Color.WHITE);
+        float size = Math.max(11f, boardSize / 38f);
+        paint.setTypeface(Typeface.DEFAULT_BOLD);
+        paint.setTextSize(size);
+        float width = paint.measureText(label);
+        float x = boardX + boardSize - width - 14f;
+        float y = Math.max(size + 5f, boardY - 10f);
 
-        float x = boardX + boardSize - estimateTextWidth(text) - 6f;
-        float y = Math.max(18f, boardY - 8f);
-
-        canvas.drawText(text, x, y, paint);
+        drawPanel(canvas, x - 8f, y - size - 6f, x + width + 8f, y + 6f, 10f);
+        paint.setColor(classificationColor(classification));
+        canvas.drawText(label, x, y, paint);
     }
 
     private void drawCoach(Canvas canvas) {
-        paint.setStyle(Paint.Style.FILL);
-        paint.setTextSize(Math.max(11f, boardSize / 46f));
-        paint.setTypeface(android.graphics.Typeface.DEFAULT);
+        float size = Math.max(11f, boardSize / 46f);
+        paint.setTypeface(Typeface.DEFAULT);
+        paint.setTextSize(size);
 
-        String text = coach;
-        float maxWidth = Math.max(100f, boardSize - 12f);
+        float maxWidth = Math.max(130f, boardSize - 20f);
+        String text = trimText(coach, maxWidth);
 
-        if (estimateTextWidth(text) > maxWidth) {
-            text = trimText(text, maxWidth);
-        }
+        float x = boardX + 10f;
+        float y = boardY + boardSize + size + 16f;
+        float width = Math.min(maxWidth, paint.measureText(text) + 16f);
 
-        paint.setColor(Color.WHITE);
-
-        float x = boardX + 6f;
-        float y = boardY + boardSize + Math.max(18f, boardSize / 24f);
-
+        drawPanel(canvas, x - 6f, y - size - 7f, x + width, y + 7f, 10f);
+        paint.setColor(MUTED);
         canvas.drawText(text, x, y, paint);
     }
 
-    private float estimateTextWidth(String text) {
-        return paint.measureText(text);
+    private int classificationColor(String value) {
+        String text = value == null ? "" : value.toLowerCase(Locale.US);
+
+        if (text.contains("blunder")) {
+            return RED;
+        }
+        if (text.contains("mistake")) {
+            return ORANGE;
+        }
+        if (text.contains("inaccuracy")) {
+            return YELLOW;
+        }
+        if (text.contains("good")
+                || text.contains("best")
+                || text.contains("excellent")
+                || text.contains("book")) {
+            return GREEN;
+        }
+
+        return WHITE;
+    }
+
+    private void drawPanel(
+            Canvas canvas,
+            float left,
+            float top,
+            float right,
+            float bottom,
+            float radius
+    ) {
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(PANEL);
+        canvas.drawRoundRect(
+                new RectF(left, top, right, bottom),
+                radius,
+                radius,
+                paint
+        );
+
+        stroke.setStrokeWidth(Math.max(1f, boardSize / 500f));
+        stroke.setColor(PANEL_STROKE);
+        canvas.drawRoundRect(
+                new RectF(left, top, right, bottom),
+                radius,
+                radius,
+                stroke
+        );
     }
 
     private String trimText(String text, float maxWidth) {
+        if (paint.measureText(text) <= maxWidth) {
+            return text;
+        }
+
         String suffix = "...";
         String value = text;
 
@@ -297,8 +394,7 @@ public final class OverlayViewV2 extends View {
 
         float ux = dx / length;
         float uy = dy / length;
-        float size = Math.max(13f, width * 2.5f);
-
+        float size = Math.max(12f, width * 2.8f);
         float baseX = to.x - ux * size;
         float baseY = to.y - uy * size;
 
@@ -315,7 +411,13 @@ public final class OverlayViewV2 extends View {
         path.close();
 
         paint.setStyle(Paint.Style.FILL);
+        paint.setColor(0x55000000);
+        canvas.drawPath(path, paint);
+
+        canvas.save();
+        canvas.translate(-ux * 1.5f, -uy * 1.5f);
         paint.setColor(color);
         canvas.drawPath(path, paint);
+        canvas.restore();
     }
 }
