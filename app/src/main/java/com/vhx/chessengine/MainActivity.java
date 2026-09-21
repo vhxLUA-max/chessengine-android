@@ -147,6 +147,12 @@ public class MainActivity extends Activity {
         boardInfo.setPadding(0, 0, 0, dp(8));
         root.addView(boardInfo);
 
+        Button cameraDetector = secondaryButton("CAMERA BOARD DETECTOR");
+        cameraDetector.setOnClickListener(v ->
+                startActivity(new Intent(this, CameraActivity.class))
+        );
+        root.addView(cameraDetector);
+
         root.addView(section("ENGINE"));
 
         LinearLayout depthRow = row();
