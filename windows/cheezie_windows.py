@@ -2,6 +2,7 @@
 import os
 import shutil
 import sys
+import threading
 import tkinter as tk
 from pathlib import Path
 from tkinter import messagebox, ttk
@@ -126,6 +127,7 @@ class CheezieWindows:
             self.httpd = ThreadingHTTPServer((HOST, PORT), APIHandler)
             self.httpd.engine_service = self.service
             self.httpd.auth_token = ""
+            threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
 
             self.status_var.set("Running")
         except Exception as exc:
