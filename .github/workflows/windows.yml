@@ -1,4 +1,4 @@
-name: Windows Python checks
+name: Windows Build
 
 on:
   push:
@@ -8,22 +8,40 @@ on:
   workflow_dispatch:
 
 jobs:
-  test-windows-client:
+  build-windows:
     runs-on: windows-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
           python-version: "3.x"
+
       - name: Install dependencies
-        run: python -m pip install -r requirements.txt
-      - name: Compile Python sources
+        run: |
+          python -m pip install -r requirements.txt
+          python -m pip install pyinstaller
+
+      - name: Validate Python sources
         shell: pwsh
         run: |
           python -m py_compile engine_server.py server.py board_tracker.py windows/cheezie_windows.py
+
       - name: Smoke test chess import
         shell: pwsh
         run: |
           python -c "import chess; print(chess.__version__)"
+
+      - name: Build EXE
+        shell: pwsh
+        run: |
+          pyinstaller --noconfirm --clean --onefile --windowed --name Cheezie-Windows windows/cheezie_windows.py
+
+      - name: Upload Windows EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cheezie-Windows
+          path: dist/Cheezie-Windows.exe
+          if-no-files-found: error
