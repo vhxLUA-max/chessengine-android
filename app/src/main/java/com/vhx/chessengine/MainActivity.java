@@ -226,10 +226,12 @@ public class MainActivity extends Activity {
         );
         root.addView(accessibility);
 
-        Button overlayInfo = secondaryButton("OVERLAY: ACCESSIBILITY OVERLAY");
-        overlayInfo.setOnClickListener(v ->
-                startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+        TextView overlayInfo = text(
+                "Overlay uses the connected accessibility service. It will not appear under Display over other apps.",
+                11,
+                MUTED
         );
+        overlayInfo.setPadding(0, dp(8), 0, 0);
         root.addView(overlayInfo);
 
         Button test = secondaryButton("TEST TERMUX ENGINE");
