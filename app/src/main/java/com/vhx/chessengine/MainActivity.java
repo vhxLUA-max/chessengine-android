@@ -13,6 +13,7 @@ import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
+import android.widget.SeekBar;
 import android.widget.Switch;
 import android.widget.TextView;
 
@@ -30,6 +31,7 @@ public class MainActivity extends Activity {
     public static final String DEPTH = "depth";
     public static final String MULTIPV = "multipv";
     public static final String SHOW_EVAL = "show_eval";
+    public static final String OVERLAY = "overlay";
     public static final String MOVE_CLASSIFICATION = "move_classification";
     public static final String COACH = "coach";
     public static final String VOICE_COACH = "voice_coach";
@@ -42,7 +44,8 @@ public class MainActivity extends Activity {
     private EditText orientation;
     private EditText userSide;
     private EditText initialFen;
-    private EditText depth;
+    private SeekBar depth;
+    private TextView depthValue;
     private EditText multipv;
 
     private Switch autoMove;
@@ -123,11 +126,53 @@ public class MainActivity extends Activity {
 
         root.addView(text("ENGINE", 12, Color.rgb(120, 205, 145)));
 
-        depth = field("Depth (1-30)", String.valueOf(p.getInt(DEPTH, 12)));
-        multipv = field("Analysis lines (1-10)", String.valueOf(p.getInt(MULTIPV, 5)));
+        LinearLayout depthRow = new LinearLayout(this);
+        depthRow.setOrientation(LinearLayout.HORIZONTAL);
+        depthRow.setGravity(Gravity.CENTER_VERTICAL);
 
-        root.addView(depth);
+        TextView depthLabel = text("Depth", 12, Color.WHITE);
+        depthLabel.setPadding(0, 6, 8, 6);
+
+        depthValue = text(String.valueOf(clamp(p.getInt(DEPTH, 12), 1, 30)), 12, Color.WHITE);
+        depthValue.setGravity(Gravity.CENTER);
+
+        depth = new SeekBar(this);
+        depth.setMax(29);
+        depth.setProgress(clamp(p.getInt(DEPTH, 12), 1, 30) - 1);
+        depth.setLayoutParams(new LinearLayout.LayoutParams(
+                0,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                1f
+        ));
+
+        depth.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                depthValue.setText(String.valueOf(progress + 1));
+            }
+
+            @Override
+            public void onStartTrackingTouch(SeekBar seekBar) {
+            }
+
+            @Override
+            public void onStopTrackingTouch(SeekBar seekBar) {
+            }
+        });
+
+        depthRow.addView(depthLabel);
+        depthRow.addView(depth);
+        depthRow.addView(depthValue);
+        root.addView(depthRow);
         root.addView(multipv);
+
+        root.addView(text("OVERLAY", 12, Color.rgb(120, 205, 145)));
+
+        Switch overlay = toggle(
+                "Overlay",
+                p.getBoolean(OVERLAY, true)
+        );
+        root.addView(overlay);
 
         root.addView(text("FEATURES", 12, Color.rgb(120, 205, 145)));
 
@@ -261,7 +306,8 @@ public class MainActivity extends Activity {
                 INITIAL_FEN,
                 initialFen.getText().toString().trim()
         );
-        e.putInt(DEPTH, clamp(number(depth, 12), 1, 30));
+        e.putInt(DEPTH, clamp(depth.getProgress() + 1, 1, 30));
+        e.putBoolean(OVERLAY, overlay.isChecked());
         e.putInt(MULTIPV, clamp(number(multipv, 5), 1, 10));
         e.putBoolean(AUTO_MOVE, autoMove.isChecked());
         e.putBoolean(SHOW_EVAL, showEval.isChecked());
