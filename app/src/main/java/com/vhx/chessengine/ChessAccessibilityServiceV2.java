@@ -49,7 +49,11 @@ public final class ChessAccessibilityServiceV2 extends AccessibilityService {
     private final Runnable captureLoop = new Runnable() {
         @Override
         public void run() {
-            if (MainActivity.pref(this, MainActivity.ANALYZER_RUNNING, false)) {
+            if (MainActivity.pref(
+                    ChessAccessibilityServiceV2.this,
+                    MainActivity.ANALYZER_RUNNING,
+                    false
+            )) {
                 capture();
             } else if (overlay != null) {
                 overlay.clearAnalysis();
