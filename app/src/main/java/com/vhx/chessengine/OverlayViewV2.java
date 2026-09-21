@@ -48,7 +48,6 @@ public final class OverlayViewV2 extends View {
 
     public OverlayViewV2(Context context) {
         super(context);
-        setLayerType(View.LAYER_TYPE_SOFTWARE, null);
     }
 
     public synchronized void setBoard(int x, int y, int size, String orientation) {
@@ -69,6 +68,16 @@ public final class OverlayViewV2 extends View {
         if (next != null) {
             arrows.addAll(next);
         }
+        invalidate();
+    }
+
+    public synchronized void clearAnalysis() {
+        arrows.clear();
+        evalCp = null;
+        evalMate = null;
+        accuracy = -1;
+        classification = "";
+        coach = "";
         invalidate();
     }
 
