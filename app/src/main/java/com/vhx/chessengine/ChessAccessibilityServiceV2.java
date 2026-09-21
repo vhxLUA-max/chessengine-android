@@ -18,6 +18,9 @@ import org.json.JSONObject;
 
 import android.speech.tts.TextToSpeech;
 
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -56,6 +59,11 @@ public final class ChessAccessibilityServiceV2 extends AccessibilityService {
         windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
         overlay = new OverlayViewV2(this);
         overlay.setHidden(!MainActivity.pref(this, MainActivity.OVERLAY, true));
+        try {
+            nativeEngine = new NativeChessEngine(prepareNativeEngineDirectory());
+        } catch (Exception ignored) {
+            nativeEngine = null;
+        }
 
         WindowManager.LayoutParams params = new WindowManager.LayoutParams(
                 WindowManager.LayoutParams.MATCH_PARENT,
@@ -333,6 +341,19 @@ public final class ChessAccessibilityServiceV2 extends AccessibilityService {
         try {
             JSONObject root = new JSONObject(response);
 
+            String fen = root.optString("fen", "");
+            int nativeDepth = MainActivity.pref(this, MainActivity.DEPTH, 12);
+            String nativeBestMove = "";
+            if (nativeEngine != null && !fen.isEmpty()) {
+                try {
+                    if (nativeEngine.setPosition(fen)
+                            && nativeEngine.analyze(nativeDepth, 0, 1, 128, 1)) {
+                        nativeBestMove = nativeEngine.getBestMove();
+                    }
+                } catch (Exception ignored) {
+                }
+            }
+
             JSONArray lines = root.optJSONArray("lines");
             List<OverlayViewV2.Arrow> next = new ArrayList<>();
 
@@ -352,6 +373,9 @@ public final class ChessAccessibilityServiceV2 extends AccessibilityService {
                     }
 
                     String move = line.optString("bestmove_uci", "");
+                    if (i == 0 && isValidUciMove(nativeBestMove)) {
+                        move = nativeBestMove;
+                    }
                     if (!isValidUciMove(move)) {
                         continue;
                     }
@@ -427,8 +451,9 @@ public final class ChessAccessibilityServiceV2 extends AccessibilityService {
             boolean changed = root.optBoolean("changed", false);
             boolean gameOver = root.optBoolean("game_over", false);
             String side = root.optString("side", "");
-            String best = root.optString("bestmove_uci", "");
-            String fen = root.optString("fen", "");
+            String best = isValidUciMove(nativeBestMove)
+                    ? nativeBestMove
+                    : root.optString("bestmove_uci", "");
             String detectedMove = root.optString("move_uci", "");
             boolean voiceCoach = MainActivity.pref(
                     this,
@@ -512,6 +537,27 @@ public final class ChessAccessibilityServiceV2 extends AccessibilityService {
             }
         } catch (Exception ignored) {
         }
+    }
+
+    private String prepareNativeEngineDirectory() throws Exception {
+        File directory = new File(getFilesDir(), "engine");
+        if (!directory.exists() && !directory.mkdirs()) {
+            throw new IllegalStateException("Unable to create engine directory");
+        }
+
+        File network = new File(directory, "nn-1a298aa575a0.nnue");
+        if (!network.exists() || network.length() == 0) {
+            try (InputStream input = getAssets().open("nn-1a298aa575a0.nnue");
+                 FileOutputStream output = new FileOutputStream(network)) {
+                byte[] buffer = new byte[8192];
+                int count;
+                while ((count = input.read(buffer)) != -1) {
+                    output.write(buffer, 0, count);
+                }
+            }
+        }
+
+        return directory.getAbsolutePath();
     }
 
     private boolean isValidUciMove(String move) {
@@ -652,6 +698,14 @@ public final class ChessAccessibilityServiceV2 extends AccessibilityService {
     @Override
     public void onDestroy() {
         onInterrupt();
+
+        if (nativeEngine != null) {
+            try {
+                nativeEngine.close();
+            } catch (Exception ignored) {
+            }
+            nativeEngine = null;
+        }
 
         if (textToSpeech != null) {
             textToSpeech.stop();
