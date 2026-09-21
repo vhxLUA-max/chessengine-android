@@ -48,6 +48,7 @@ public class MainActivity extends Activity {
     private TextView depthValue;
     private EditText multipv;
 
+    private Switch overlay;
     private Switch autoMove;
     private Switch showEval;
     private Switch moveClassification;
@@ -173,7 +174,7 @@ public class MainActivity extends Activity {
 
         root.addView(text("OVERLAY", 12, Color.rgb(120, 205, 145)));
 
-        Switch overlay = toggle(
+        overlay = toggle(
                 "Overlay",
                 p.getBoolean(OVERLAY, true)
         );
