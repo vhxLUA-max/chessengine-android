@@ -30,6 +30,9 @@ public final class ChessAccessibilityServiceV2 extends AccessibilityService {
     private WindowManager windowManager;
     private OverlayViewV2 overlay;
     private NativeChessEngine nativeEngine;
+    private final BoardDetector boardDetector = new BoardDetector();
+    private BoardDetector.Result detectedBoard;
+    private long lastBoardDetectionMs = 0L;
 
     private String lastAutoMove = null;
     private TextToSpeech textToSpeech;
@@ -206,7 +209,20 @@ public final class ChessAccessibilityServiceV2 extends AccessibilityService {
         );
 
         if (size <= 0) {
-            return;
+            long now = android.os.SystemClock.uptimeMillis();
+
+            if (detectedBoard == null || now - lastBoardDetectionMs >= 2500L) {
+                detectedBoard = boardDetector.detect(screen);
+                lastBoardDetectionMs = now;
+            }
+
+            if (detectedBoard == null) {
+                return;
+            }
+
+            x = detectedBoard.x;
+            y = detectedBoard.y;
+            size = detectedBoard.size;
         }
 
         int safeX = Math.max(0, Math.min(x, screen.getWidth() - 1));
